@@ -1,0 +1,11 @@
+# IDE/Editor settings
+.idea
+.vs
+.vscode
+
+# Shortcut scripts
+*.sh
+*.bat
+
+# Compiled things
+*build/*
