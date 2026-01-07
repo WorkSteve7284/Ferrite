@@ -2,10 +2,15 @@
 .idea
 .vs
 .vscode
+.clangd
 
 # Shortcut scripts
 *.sh
 *.bat
 
 # Compiled things
-*build/*
+**/build/*
+.cache/*
+
+# Games
+games/*
