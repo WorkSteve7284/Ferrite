@@ -12,7 +12,7 @@ namespace Ferrite::Core::Classes {
 
         public:
 
-            template <typename T> static std::weak_ptr<T> get_weak(const Component* c) { return std::static_pointer_cast<T>(c->shared_from_this()); }
+            template <typename T> static std::weak_ptr<T> get_weak(Component* c) { return std::static_pointer_cast<T>(c->shared_from_this()); }
 
             inline static Object* manager;
 

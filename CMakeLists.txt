@@ -4,6 +4,8 @@ project(Ferrite)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -stdlib=libc++")
+
 # Compile engine
 add_subdirectory(engine)
 

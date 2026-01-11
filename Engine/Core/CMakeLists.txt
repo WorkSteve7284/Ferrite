@@ -34,6 +34,10 @@ target_sources(FerriteEngine-Core
         Time/Time.cppm
         Time/TimeVariables.cppm
         Time/Timer.cppm
+
+        # Initialization
+        Initialization/Initialization.cppm
+        Initialization/YAML.cppm
 )
 
 target_compile_definitions(FerriteEngine-Core PRIVATE FERRITE_DETERMINISTIC)
