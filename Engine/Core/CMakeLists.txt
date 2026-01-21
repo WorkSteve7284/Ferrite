@@ -37,7 +37,9 @@ target_sources(FerriteEngine-Core
 
         # Initialization
         Initialization/Initialization.cppm
+        Initialization/ConstexprTypes.cppm
         Initialization/YAML.cppm
+        Initialization/YAMLToPrefab.cppm
 )
 
 target_compile_definitions(FerriteEngine-Core PRIVATE FERRITE_DETERMINISTIC)

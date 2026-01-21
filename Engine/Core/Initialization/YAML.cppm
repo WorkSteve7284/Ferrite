@@ -1,5 +1,7 @@
 module;
 
+#include <cstdint>
+#include <type_traits>
 #include <string_view>
 #include <string>
 #include <variant>
@@ -12,55 +14,9 @@ export module Ferrite.Core.Initialization:YAML;
 import Ferrite.Core.Config;
 import Ferrite.Core.Exceptions;
 
+import :ConstexprTypes;
+
 namespace Ferrite::Core::Initialization {
-
-    export template <typename T, std::size_t N> struct constexpr_vector {
-    private:
-        std::array<T, N> data;
-        std::size_t _size = 0;
-    public:
-
-        constexpr std::size_t size() const noexcept { return _size; }
-
-        constexpr T& back() noexcept { return data[_size - 1]; }
-
-        constexpr T& operator[](std::size_t i) {
-            return data[i];
-        }
-
-        constexpr T& push_back(const T& elem) {
-            data[_size++] = elem;
-            return back();
-        }
-
-        template <typename... Args> constexpr T& emplace_back(Args&&... args) {
-            data[_size++] = T{args...};
-            return back();
-        }
-
-        constexpr auto begin() noexcept {
-            return data.begin();
-        }
-        constexpr auto end() noexcept {
-            return data.end();
-        }
-    };
-
-    export template <std::size_t N> struct constexpr_string {
-    private:
-        std::string_view view;
-        std::array<char, N> chars;
-    public:
-        constexpr constexpr_string(const std::string& str) {
-            if (str.size() < N) {
-                std::copy(str.begin(), str.end(), chars.begin());
-                view = std::string_view(chars.begin(), chars.begin() + str.size());
-            }
-        }
-        constexpr constexpr_string() {
-            view = std::string_view(chars.begin(), chars.begin());
-        }
-    };
 
     export struct YAMLElement {
 
@@ -80,6 +36,146 @@ namespace Ferrite::Core::Initialization {
     export template <std::size_t N> struct YAML {
         std::array<YAMLElement, N> arr;
     };
+
+    enum class IndentLevel {
+        UNKNOWN,
+        SEQUENCE,
+        VALUE_SEQUENCE,
+        MAPPING
+    };
+
+    struct Frame {
+        IndentLevel type;
+        std::size_t indent;
+    };
+
+    /* Convert a YAML file represented as `std::array<char, N>` to YAML */
+    export template <auto chars> consteval auto parse_yaml();
+    /* Convert a YAML file represented as an array of string_views to YAML */
+    export template <std::size_t N> constexpr auto parse_yaml(const std::array<constexpr_string<256>, N>);
+    /* Parse the value of YAML to an actual value */
+    constexpr YAMLElement::Value parse_string(const std::string_view);
+    /* Parse an entire line */
+    constexpr void parse_line(constexpr_string<256>&, constexpr_vector<YAMLElement, 256>&, constexpr_vector<std::uint8_t, 128>&);
+    /* Convert an array of chars into an array of string_views. */
+    template <std::size_t N, const std::array<char, N>& chars> consteval auto convert_to_strings();
+
+    export template <auto chars> consteval auto parse_yaml() {
+
+        static_assert(is_std_array<std::remove_cvref_t<decltype(chars)>>::value);
+
+        constexpr auto sv_arr = convert_to_strings<chars.size(), chars>();
+
+        constexpr auto p = parse_yaml(sv_arr);
+
+        constexpr auto v = p.first;
+        constexpr auto n = p.second;
+
+        YAML<n> out;
+
+        constexpr_copy(v, out.arr);
+
+        return out;
+    }
+
+    export template <std::size_t N> constexpr auto parse_yaml(const std::array<constexpr_string<256>, N> strs) {
+
+        std::vector<constexpr_string<256>> normalized(strs.begin(), strs.end());
+
+        // Remove empty lines
+        normalized.erase(std::remove_if(normalized.begin(), normalized.end(), [](std::string_view str) {
+            return str.find_first_not_of(" \n\t") == str.npos;
+        }), normalized.end());
+
+        constexpr_vector<IndentLevel, 128> stack{}; // Essentially stores indentation level
+
+        constexpr_vector<YAMLElement, 256> elements{};
+
+        for (auto& str : normalized) {
+
+            auto indent = str.view().find_first_not_of(' ');
+
+            if (indent == std::string_view::npos)
+                break;
+
+            if (indent == indents.back()) {
+                // Strip whitespace
+                str.erase(0, indent);
+
+                if (containers.empty()) {
+                    // Parse new object
+
+                    auto colon = str.view().find_first_of(':');
+
+                    if (colon == std::string::npos) {
+                        continue;
+                    }
+
+                    // Unknown value-sequence, sequence, or mapping
+                    if (colon == str.view().find_last_not_of(' ')) {
+                        containers.push_back(IndentLevel::UNKNOWN);
+                        elements.emplace_back(make_string(str.substr(0, colon)));
+                    }
+                    else {
+                        elements.emplace_back(make_string(str.substr(0, colon)), parse_string(str.substr(colon)));
+                    }
+                }
+                else {
+                    // If unknown, determine type
+                    if (containers.back() == IndentLevel::UNKNOWN) {
+                        if (str.view().starts_with("- ")) {
+                            if (str.view().find_first_of(':') != std::string::npos) {
+                                containers.back() = IndentLevel::SEQUENCE;
+                                elements.back().value = YAMLElement::AllTypes{constexpr_vector<std::size_t, 64>{}};
+                            }
+                            else {
+                                containers.back() = IndentLevel::VALUE_SEQUENCE;
+                                elements.back().value = YAMLElement::AllTypes{constexpr_vector<YAMLElement::Value, 64>{}};
+                            }
+                        }
+                        else {
+                            containers.back() = IndentLevel::MAPPING;
+                            elements.back().value = YAMLElement::AllTypes{constexpr_vector<std::size_t, 64>{}};
+                        }
+                    }
+
+                    parse_line(str, elements, containers);
+                }
+            }
+            if (indent > containers.size() * 2) {
+                continue;
+            }
+            else if (indent != 0) {
+
+                str.erase(0, indent);
+
+                // Move back up the correct amount of indents
+                containers.resize(indent/2);
+
+                parse_line(str, elements, containers);
+            }
+            else {
+                auto colon = str.view().find_first_of(':');
+
+                if (colon == std::string::npos) {
+                    continue;
+                }
+
+                // Unknown value-sequence, sequence, or mapping
+                if (colon == str.view().find_last_not_of(' ')) {
+                    containers.push_back(IndentLevel::UNKNOWN);
+                    elements.emplace_back(make_string(str.substr(0, colon)));
+                }
+                else {
+                    elements.emplace_back(make_string(str.substr(0, colon)), parse_string(str.substr(colon)));
+                }
+            }
+
+        }
+
+        return std::pair(elements, elements.size());
+
+    }
 
     constexpr YAMLElement::Value parse_string(const std::string_view str) {
 
@@ -149,307 +245,180 @@ namespace Ferrite::Core::Initialization {
             }
         }
 
-        return constexpr_string<64>(string);
+        return make_string(string);
     }
 
-    export template <std::size_t N> constexpr auto parse_yaml(const std::array<std::string_view, N> strs) {
+    constexpr void parse_line(constexpr_string<256>& line, constexpr_vector<YAMLElement, 256>& elements, constexpr_vector<IndentLevel, 128>& containers) {
 
-        std::vector<std::string> normalized(strs.begin(), strs.end());
+        YAMLElement* whence = &elements.back();
 
-        // Remove empty lines & comments
-
-        enum class Escaped {
-            NO,
-            SINGLE,
-            DOUBLE
-        };
-
-        for (std::size_t i = 0; i < normalized.size(); i++) {
-            if (normalized[i].empty()) {
-                normalized.erase(normalized.begin() + i);
-                i--;
-            }
+        for (std::size_t i = 0; i < containers.size(); i++) {
+            auto& vec = std::get<1>(whence->value);
+            if (!vec.empty())
+                whence = &elements[vec.back()];
             else {
-
-                auto first = normalized[i].find_first_of("\'\"#");
-
-                if (first == std::string::npos) [[likely]] continue;
-
-                Escaped escape = Escaped::NO;
-                for (std::size_t j = first; j < normalized[i].size(); j++) {
-                    switch (normalized[i][j]) {
-                        case '\"':
-                            // Ensure not escaped
-                            if (j == 0 || !(j != 0 && normalized[i][j-1] == '\\')) [[unlikely]]
-                                break;
-                            else
-                            {
-                                if (escape == Escaped::NO) escape = Escaped::DOUBLE;
-                                else if (escape == Escaped::DOUBLE) escape = Escaped::NO;
-                            }
-
-                            break;
-                        case '\'':
-                            // Ensure not escaped
-                            if (j == 0 || !(j != 0 && normalized[i][j-1] == '\'')) [[unlikely]]
-                                break;
-                            else
-                            {
-                                if (escape == Escaped::NO) escape = Escaped::SINGLE;
-                                else if (escape == Escaped::DOUBLE) escape = Escaped::NO;
-                            }
-
-                            break;
-                        case '#':
-                            if (escape == Escaped::NO)
-                                normalized[i].erase(j);
-                            break;
-                    }
-                }
+                break;
             }
         }
 
-        // Parse YAML
+        restart_switch:
 
-        /*
+        switch (containers.back()) {
+            case IndentLevel::VALUE_SEQUENCE:
 
-        map = 1
-        sequence (yaml element) = 2
-        sequence (value) = 4
+            line.erase(0, 2);
 
-        sequence = 6
+            if (whence->value.index() == 2) {
+                std::get<2>(whence->value).emplace_back(parse_string(line));
+            }
+            break;
 
-        */
+            case IndentLevel::SEQUENCE:
+            {
+                line.erase(0, 2);
 
-        std::vector<unsigned char> containers;
+                if (whence->value.index() != 1) break;
 
-        constexpr_vector<YAMLElement, 256> elements;
+                auto colon = line.view().find_first_of(':');
 
-        for (auto& str : normalized) {
+                if (colon == std::string::npos) {
+                    return;
+                }
 
-            std::string prefix(containers.size() * 2, ' ');
+                // Unknown value-sequence, sequence, or mapping
+                if (colon == line.view().find_last_not_of(' ')) {
+                    containers.push_back(IndentLevel::UNKNOWN);
+                    std::get<1>(whence->value).emplace_back(elements.size());
+                    elements.emplace_back(make_string(line.substr(0, colon)));
+                }
+                else {
+                    std::get<1>(whence->value).emplace_back(elements.size());
+                    elements.emplace_back(make_string(line.substr(0, colon)), parse_string(line.substr(colon)));
+                }
+                break;
+            }
 
-            if (str.starts_with(prefix)) {
-                // Strip whitespace
-                str.erase(0, containers.size() * 2);
+            case IndentLevel::MAPPING:
+            {
+                line.erase(0, 2);
 
+                if (whence->value.index() != 1) break;
 
-                if (containers.empty()) {
-                    // Parse new object
+                auto colon = line.view().find_first_of(':');
 
-                    auto colon = str.find_first_of(':');
+                if (colon == std::string::npos) {
+                    return;
+                }
 
-                    if (colon == std::string::npos) {
-                        continue;
-                    }
+                // Unknown value-sequence, sequence, or mapping
+                if (colon == line.view().find_last_not_of(' ')) {
+                    containers.push_back(IndentLevel::UNKNOWN);
+                    std::get<1>(whence->value).emplace_back(elements.size());
+                    elements.emplace_back(make_string(line.substr(0, colon)));
+                }
+                else {
+                    std::get<1>(whence->value).emplace_back(elements.size());
+                    elements.emplace_back(make_string(line.substr(0, colon)), parse_string(line.substr(colon)));
+                }
+                break;
+            }
 
-                    // Unknown value-sequence, sequence, or mapping
-                    if (colon == str.find_last_not_of(' ')) {
-                        containers.push_back(0b1000);
-                        elements.emplace_back(str.substr(0, colon));
+            case IndentLevel::UNKNOWN:
+                // Determine type
+                if (line.view().starts_with("- ")) {
+                    if (line.view().find_first_of(':') != std::string::npos) {
+                        containers.back() = IndentLevel::SEQUENCE;
+                        whence->value = YAMLElement::AllTypes{constexpr_vector<std::size_t, 64>{}};
                     }
                     else {
-                        elements.emplace_back(str.substr(0, colon), parse_string(str.substr(colon)));
+                        containers.back() = IndentLevel::VALUE_SEQUENCE;
+                        whence->value = YAMLElement::AllTypes{constexpr_vector<YAMLElement::Value, 64>{}};
                     }
                 }
                 else {
-                    // If unknown, determine type
-                    if (containers.back() == 8) {
-                        if (str.starts_with("- ")) {
-
-                            if (str.find_first_of(':') != std::string::npos)
-                                containers.back() = 2;
-                            else
-                                containers.back() = 4;
-
-                        }
-                        else
-                            containers.back() = 1;
-                    }
-
-                    // add to where?
-                    YAMLElement* whence = &elements.back();
-
-                    for (std::size_t i = 0; i < containers.size(); i++) {
-                        whence = &elements[std::get<1>(whence->value).back()];
-                    }
-
-                    switch (containers.back()) {
-                        case 4: // Value-Sequence
-
-                        str.erase(0, 2);
-
-                        if (whence->value.index() == 2) {
-                            std::get<2>(whence->value).emplace_back(parse_string(str));
-                        }
-                        break;
-
-                        case 2: // Sequence
-                        {
-                            str.erase(0, 2);
-
-                            if (whence->value.index() != 1) break;
-
-                            auto colon = str.find_first_of(':');
-
-                            if (colon == std::string::npos) {
-                                continue;
-                            }
-
-                            // Unknown value-sequence, sequence, or mapping
-                            if (colon == str.find_last_not_of(' ')) {
-                                containers.push_back(0b1000);
-                                std::get<1>(whence->value).push_back(elements.size());
-                                elements.emplace_back(str.substr(0, colon));
-                            }
-                            else {
-                                std::get<1>(whence->value).push_back(elements.size());
-                                elements.emplace_back(str.substr(0, colon), parse_string(str.substr(colon)));
-                            }
-                            break;
-                        }
-
-                        case 1: // Mapping
-                        {
-                            str.erase(0, 2);
-
-                            if (whence->value.index() != 1) break;
-
-                            auto colon = str.find_first_of(':');
-
-                            if (colon == std::string::npos) {
-                                continue;
-                            }
-
-                            // Unknown value-sequence, sequence, or mapping
-                            if (colon == str.find_last_not_of(' ')) {
-                                containers.push_back(0b1000);
-                                std::get<1>(whence->value).emplace_back(elements.size());
-                                elements.emplace_back(str.substr(0, colon));
-                            }
-                            else {
-                                std::get<1>(whence->value).emplace_back(elements.size());
-                                elements.emplace_back(str.substr(0, colon), parse_string(str.substr(colon)));
-                            }
-                            break;
-                        }
-                    }
-                }
-            }
-            else {
-                containers.pop_back();
-
-                YAMLElement* whence = &elements.back();
-
-                for (std::size_t i = 0; i < containers.size(); i++) {
-                    whence = &elements[std::get<1>(whence->value).back()];
+                    containers.back() = IndentLevel::MAPPING;
+                    whence->value = YAMLElement::AllTypes{constexpr_vector<std::size_t, 64>{}};
                 }
 
-                switch (containers.back()) {
-                    case 4: // Value-Sequence
-
-                    str.erase(0, 2);
-
-                    if (whence->value.index() == 2) {
-                        std::get<2>(whence->value).emplace_back(parse_string(str));
-                    }
-                    break;
-
-                    case 2: // Sequence
-                    {
-                        str.erase(0, 2);
-
-                        if (whence->value.index() != 1) break;
-
-                        auto colon = str.find_first_of(':');
-
-                        if (colon == std::string::npos) {
-                            continue;
-                        }
-
-                        // Unknown value-sequence, sequence, or mapping
-                        if (colon == str.find_last_not_of(' ')) {
-                            containers.push_back(0b1000);
-                            std::get<1>(whence->value).emplace_back(elements.size());
-                            elements.emplace_back(str.substr(0, colon));
-                        }
-                        else {
-                            std::get<1>(whence->value).emplace_back(elements.size());
-                            elements.emplace_back(str.substr(0, colon), parse_string(str.substr(colon)));
-                        }
-                        break;
-                    }
-
-                    case 1: // Mapping
-                    {
-                        str.erase(0, 2);
-
-                        if (whence->value.index() != 1) break;
-
-                        auto colon = str.find_first_of(':');
-
-                        if (colon == std::string::npos) {
-                            continue;
-                        }
-
-                        // Unknown value-sequence, sequence, or mapping
-                        if (colon == str.find_last_not_of(' ')) {
-                            containers.push_back(0b1000);
-                            std::get<1>(whence->value).emplace_back(elements.size());
-                            elements.emplace_back(str.substr(0, colon));
-                        }
-                        else {
-                            std::get<1>(whence->value).emplace_back(elements.size());
-                            elements.emplace_back(str.substr(0, colon), parse_string(str.substr(colon)));
-                        }
-                        break;
-                    }
-                }
-            }
-
+                goto restart_switch;
         }
-
-        return std::pair(elements, elements.size());
     }
 
-    template <std::size_t N, const std::array<char, N>* chars> consteval auto convert_to_strings() {
-        std::array<std::string_view, std::count(chars->begin(), chars->end(), '\n')> arr;
+    template <std::size_t N, const std::array<char, N>& chars> consteval auto convert_to_strings() {
+        std::array<constexpr_string<256>, std::count(chars.begin(), chars.end(), '\n')> arr;
 
-        // Create string views for characters between newlines, excluding '\r's
-
-        auto last_newline = chars->begin();
+        // Copy into array
+        auto last_newline = chars.begin();
 
         for (std::size_t i = 0; i < arr.size(); i++) {
-            auto next_newline = std::find(last_newline, chars->end(), '\n');
+            auto next_newline = std::find(last_newline, chars.end(), '\n');
 
-            arr[i] = std::string_view(last_newline, next_newline);
+            // Copy characters (ignore \r and errant \n)
+            for (auto it = last_newline; it != next_newline; it++) {
+                if (*it != '\r' && *it != '\n')
+                    arr[i].chars[arr[i].size++] = *it;
+            }
 
-            if (next_newline == chars->end()) {
+            if (next_newline == chars.end()) {
                 break;
             }
             else {
                 last_newline = next_newline;
             }
+        }
 
+        // Trim comments & simplify escape stuff
+        for (std::size_t i = 0; i < arr.size(); i++) {
+            std::uint8_t escaped = 0; // 0 = none, 1 = single, 2 = double
+            for (std::size_t j = 0; j < arr[i].size; j++) {
+                switch (arr[i][j]) {
+                    case '#':
+                        if (escaped == 0)
+                            arr[i].erase(j);
+                        break;
+                    case '\'':
+                        if (escaped == 0) {
+                            if (j+1 < arr[i].size && arr[i][j+1] == '\'') arr[i].erase(j+1, 1);
+                            else escaped = 1;
+                        }
+                        else if (escaped == 1) {
+                            if (j+1 < arr[i].size && arr[i][j+1] == '\'') arr[i].erase(j+1, 1);
+                            else escaped = 0;
+                        }
+                        break;
+
+                    case '"':
+                        if (escaped == 0)
+                            escaped = 2;
+                        else if (escaped == 2) {
+                            if (j > 0 && arr[i][j-1] == '\\') arr[i].erase(j-1, 1);
+                            else escaped = 0;
+                        }
+                        break;
+
+                    case '\\':
+                        if (escaped == 2) {
+                            if (j+1 < arr[i].size) {
+                                switch (arr[i][j+1]) {
+                                    case 'n':
+                                        arr[i][j] = '\n';
+                                        arr[i].erase(j+1, 1);
+                                    case 't':
+                                        arr[i][j] = '\t';
+                                        arr[i].erase(j+1, 1);
+                                    case '\\':
+                                        arr[i][j] = '\\';
+                                        arr[i].erase(j+1, 1);
+                                }
+                            }
+                        }
+                        break;
+
+                }
+            }
         }
 
         return arr;
-    }
-
-    export template <std::size_t N, const std::array<char, N> chars> constexpr auto parse_yaml() {
-
-        constexpr auto sv_arr = convert_to_strings<N, &chars>();
-
-        constexpr auto p = parse_yaml(sv_arr);
-
-        constexpr auto v = p.first;
-        constexpr auto n = p.second;
-
-        YAML<n> out;
-
-        std::copy(v.begin(), v.end(), out.arr.begin());
-
-        return out;
     }
 
 }
