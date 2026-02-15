@@ -45,6 +45,7 @@ namespace Ferrite::Core::Classes {
 
         void start(Jobs::JobQueue& queue) const noexcept;
         void update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept;
+        void late_update(double dt);
         void fixed_update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept;
 
         std::weak_ptr<Object> add_object() noexcept;
@@ -108,7 +109,7 @@ namespace Ferrite::Core::Classes {
             std::shared_lock lock(child_mutex);
 
             for (auto& obj : children) {
-                obj.get()->start(queue);
+                obj->start(queue);
             }
         }
     }
@@ -143,7 +144,25 @@ namespace Ferrite::Core::Classes {
             std::shared_lock lock(child_mutex);
 
             for (auto& obj : children) {
-                obj.get()->update(dt, counter, counter_mutex, cv, queue);
+                obj->update(dt, counter, counter_mutex, cv, queue);
+            }
+        }
+    }
+
+    void Object::late_update(double dt) {
+        { // Update components
+            std::lock_guard lock(component_mutex);
+
+            for (auto& comp : components) {
+                comp->late_update(dt);
+            }
+        }
+
+        { // Update children
+            std::lock_guard lock(child_mutex);
+
+            for (auto& obj : children) {
+                obj->late_update(dt);
             }
         }
     }
@@ -178,7 +197,7 @@ namespace Ferrite::Core::Classes {
             std::shared_lock lock(child_mutex);
 
             for (auto& obj : children) {
-                obj.get()->fixed_update(dt, counter, counter_mutex, cv, queue);
+                obj->fixed_update(dt, counter, counter_mutex, cv, queue);
             }
         }
     }

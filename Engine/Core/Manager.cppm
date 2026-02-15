@@ -104,6 +104,8 @@ namespace Ferrite::Core {
                 const double dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - last_update).count() * 1e-9;
                 last_update = std::chrono::steady_clock::now();
 
+                top.late_update(dt);
+
                 top.update(dt, update_counter, counter_mutex, cv, job_queue);
             }
 
