@@ -20,4 +20,12 @@ namespace Ferrite::Core {
     #else
         export constexpr bool DETERMINISTIC = false;
     #endif
+
+    #ifdef DEBUG
+        export constexpr bool FERRITE_DEBUG = true;
+    #else
+        export constexpr bool FERRITE_DEBUG = false;
+    #endif
+
+    export constexpr char FERRITE_DEBUG_LOG[] = "";
 }

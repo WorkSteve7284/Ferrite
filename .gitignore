@@ -3,14 +3,17 @@
 .vs
 .vscode
 .clangd
+vc140.pdb
 
 # Shortcut scripts
 *.sh
 *.bat
 
 # Compiled things
-**/build/*
+**/out/
+**/build/
 .cache/*
+**.log
 
 # Games
 games/*

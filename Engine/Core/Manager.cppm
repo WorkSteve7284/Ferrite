@@ -1,19 +1,18 @@
 module;
 
-#include <atomic>
 #include <thread>
 #include <vector>
 #include <algorithm>
 #include <chrono>
 #include <condition_variable>
 #include <mutex>
-
+#include <print>
 export module Ferrite.Core.Manager;
-
 
 import Ferrite.Core.Config;
 import Ferrite.Core.Classes;
 import Ferrite.Core.Jobs;
+import Ferrite.Core.Debug;
 import Ferrite.Core.Time;
 
 namespace Ferrite::Core {
@@ -28,6 +27,10 @@ namespace Ferrite::Core {
 
         bool running = true;
 
+        std::mutex counter_mutex;
+        std::size_t update_counter = 0;
+        std::size_t fixed_update_counter = 0;
+
     public:
         Manager() noexcept {
 
@@ -35,7 +38,6 @@ namespace Ferrite::Core {
 
             // Initialize engine components
             Time::timer = top.add_component<Time::Timer>().lock().get();
-
 
             // Initialize workers
             const auto threads = std::clamp(
@@ -50,69 +52,56 @@ namespace Ferrite::Core {
                 workers.emplace_back(&job_queue).start();
         }
 
+        ~Manager() noexcept {
+            Debug::print_messages();
+        }
+
         void run() {
 
             auto start = std::chrono::steady_clock::now();
 
             top.start(job_queue);
 
-            std::atomic<bool> update_ready{true};
-            std::atomic<bool> fixed_update_ready{true};
+            Debug::print_messages();
+
             std::condition_variable cv;
-            std::mutex mut;
 
             auto last_fixed_update = std::chrono::steady_clock::now();
 
             auto last_update = std::chrono::steady_clock::now();
 
             while (running) {
-                std::unique_lock lock(mut);
-                cv.wait(lock, [&](){
-
-                    // Update fixed deltatime
-                    const double fixed_dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - last_fixed_update).count() * 1e-9;
-                    return update_ready.load() || (fixed_update_ready.load() && fixed_dt >= FIXED_DELTA_TIME);
-                });
-                lock.unlock();
 
                 running = top.enabled;
                 Time::runtime = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count() * 1e-9;
 
-                if (update_ready.load()) {
-
-                    update_ready.store(false);
+                if (update_counter == 0) {
 
                     const double dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - last_update).count() * 1e-9;
                     last_update = std::chrono::steady_clock::now();
 
-                    top.update(dt, job_queue);
-
-                    job_queue.add_job(Jobs::Job([&] () {
-                        {
-                            std::lock_guard lock(mut);
-                            update_ready.store(true);
-                        }
-                        cv.notify_one();
-                    }, UPDATE_PRIORITY));
+                    top.update(dt, update_counter, counter_mutex, cv, job_queue);
                 }
 
                 const double fixed_dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - last_fixed_update).count() * 1e-9;
-                if (fixed_update_ready.load() && fixed_dt >= FIXED_DELTA_TIME) {
-
-                    fixed_update_ready.store(false);
+                if (fixed_update_counter == 0 && fixed_dt >= FIXED_DELTA_TIME) {
 
                     last_fixed_update = std::chrono::steady_clock::now();
 
-                    top.fixed_update(fixed_dt, job_queue);
-
-                    job_queue.add_job(Jobs::Job([&] () {
-                        {
-                            std::lock_guard lock(mut);
-                            fixed_update_ready.store(true);
-                        }
-                        cv.notify_one();
-                    }, FIXED_UPDATE_PRIORITY));
+                    top.fixed_update(fixed_dt, fixed_update_counter, counter_mutex, cv, job_queue);
                 }
+
+                Debug::print_messages();
+
+                // Wait for updates to finish
+                std::unique_lock lock(counter_mutex);
+                cv.wait(lock, [&](){
+
+                    const double dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - last_fixed_update).count() * 1e-9;
+
+                    return update_counter == 0 || (fixed_update_counter == 0 && dt >= FIXED_DELTA_TIME);
+                });
+
             }
 
             for (auto& worker : workers)

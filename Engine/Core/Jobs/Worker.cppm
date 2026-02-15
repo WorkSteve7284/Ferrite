@@ -33,14 +33,14 @@ namespace Ferrite::Core::Jobs {
         void work() {
 
             while(employed) {
-                std::unique_lock<std::mutex> lock(jobs->mut);
+                std::unique_lock lock(jobs->mutex);
 
-                jobs->cv.wait(lock, [&]() {return !jobs->empty() || !employed || waiting;});
+                jobs->cv.wait(lock, [&]() {return !jobs->queue.empty() || !employed || waiting;});
 
                 if(!employed)
                     break;
 
-                if(waiting && jobs->empty())
+                if(waiting && jobs->queue.empty())
                     break;
 
                 Job job = jobs->take_job();

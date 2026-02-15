@@ -2,7 +2,7 @@ module;
 
 #include <memory>
 
-export module Ferrite.Core.Classes:Component;
+export module Ferrite.Core.Classes.Component;
 
 namespace Ferrite::Core::Classes {
 
@@ -12,7 +12,7 @@ namespace Ferrite::Core::Classes {
 
         public:
 
-            template <typename T> static std::weak_ptr<T> get_weak(Component* c) { return std::static_pointer_cast<T>(c->shared_from_this()); }
+            template <typename T> static std::weak_ptr<T> get_weak(T* c) { return std::static_pointer_cast<T>(c->shared_from_this()); }
 
             inline static Object* manager;
 

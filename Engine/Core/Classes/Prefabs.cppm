@@ -1,22 +1,21 @@
 module;
 
+#include <cstdint>
 #include <unordered_set>
-#include <map>
 #include <string>
-#include <any>
 #include <vector>
+#include <any>
 
-export module Ferrite.Core.Classes:Prefabs;
+export module Ferrite.Core.Classes.Prefabs;
 
 namespace Ferrite::Core::Classes {
 
     export struct ComponentPrefab {
-        std::size_t id;
-        std::map<std::string, std::any> data;
+        std::size_t id = SIZE_MAX;
+        std::any data;
     };
 
     export struct ObjectPrefab {
-
         std::string name;
         std::unordered_set<std::string> tags;
 

@@ -1,18 +1,20 @@
 module;
 
-#include <format>
-#include <functional>
 #include <memory>
 #include <shared_mutex>
 #include <vector>
 #include <string>
 #include <unordered_set>
-#include <map>
+#include <functional>
+#include <format>
+#include <typeindex>
+#include <cstdint>
+#include <mutex>
 
-export module Ferrite.Core.Classes:Object;
+export module Ferrite.Core.Classes.Object;
 
-import :Component;
-import :Prefabs;
+import Ferrite.Core.Classes.Component;
+import Ferrite.Core.Classes.Prefabs;
 
 import Ferrite.Core.Jobs;
 import Ferrite.Core.Config;
@@ -42,15 +44,15 @@ namespace Ferrite::Core::Classes {
     public:
 
         void start(Jobs::JobQueue& queue) const noexcept;
-        void update(double dt, Jobs::JobQueue& queue) const noexcept;
-        void fixed_update(double dt, Jobs::JobQueue& queue) const noexcept;
+        void update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept;
+        void fixed_update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept;
 
         std::weak_ptr<Object> add_object() noexcept;
         std::weak_ptr<Object> add_object(const ObjectPrefab&) noexcept;
         std::weak_ptr<Object> add_object(const std::weak_ptr<Object>&) noexcept;
 
-        template <typename T, typename... Args> std::weak_ptr<T> add_component(Args&&...) noexcept;
-        void add_component(const ComponentPrefab&) noexcept;
+        template <typename T, typename... Args> std::weak_ptr<T> add_component(Args&&...);
+        void add_component(const ComponentPrefab&);
 
         std::weak_ptr<Object> find_object_with_name(const std::string& name) const noexcept(!EXCEPTIONS_ALLOWED);
         std::weak_ptr<Object> find_object_with_tag(const std::string& tag) const noexcept(!EXCEPTIONS_ALLOWED);
@@ -68,17 +70,20 @@ namespace Ferrite::Core::Classes {
 
     export class PrefabManager {
 
-        using ComponentFunction = std::function<void(Object&, const ComponentPrefab&)>;
+        struct ComponentConstructor {
+            using ComponentFunction = std::function<void(Object&, const ComponentPrefab&)>;
+            std::type_index id;
+            ComponentFunction func;
+        };
 
-        inline static std::vector<ComponentFunction> constructors{};
-        inline static std::map<std::string, std::size_t> name_to_index{};
+        inline static std::vector<ComponentConstructor> constructors{};
 
     public:
         // register component
-        template <typename T> static std::size_t register_component(std::string = "") noexcept;
+        template <typename T> static std::size_t register_component() noexcept;
+        template <typename T> static std::size_t get_component_id() noexcept;
         // use component
         static void apply_component(Object&, const ComponentPrefab&) noexcept;
-
     };
 
     void Object::start(Jobs::JobQueue& queue) const noexcept {
@@ -108,7 +113,7 @@ namespace Ferrite::Core::Classes {
         }
     }
 
-    void Object::update(double dt, Jobs::JobQueue& queue) const noexcept {
+    void Object::update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept {
         { // Update components
             std::shared_lock lock(component_mutex);
 
@@ -116,9 +121,20 @@ namespace Ferrite::Core::Classes {
 
                 std::weak_ptr<Component<Object>> comp_ptr{comp};
 
-                queue.add_job(Jobs::Job([=]() mutable {
+                {
+                    std::lock_guard lock(counter_mutex);
+                    counter++;
+                }
+
+                queue.add_job(Jobs::Job([=, &counter, &counter_mutex, &cv]() mutable {
                     if (auto shared = comp_ptr.lock())
                         shared->update(dt);
+
+                    {
+                        std::lock_guard lock(counter_mutex);
+                        counter--;
+                        cv.notify_all();
+                    }
                 }, UPDATE_PRIORITY));
             }
         }
@@ -127,30 +143,42 @@ namespace Ferrite::Core::Classes {
             std::shared_lock lock(child_mutex);
 
             for (auto& obj : children) {
-                obj.get()->update(dt, queue);
+                obj.get()->update(dt, counter, counter_mutex, cv, queue);
             }
         }
     }
 
-    void Object::fixed_update(double dt, Jobs::JobQueue& queue) const noexcept {
+    void Object::fixed_update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept {
         { // Update components
             std::shared_lock lock(component_mutex);
             for (auto& comp : components) {
 
                 std::weak_ptr<Component<Object>> comp_ptr{comp};
 
-                queue.add_job(Jobs::Job([=]() mutable {
+                {
+                    std::lock_guard lock(counter_mutex);
+                    counter++;
+                }
+
+                queue.add_job(Jobs::Job([=, &counter, &counter_mutex, &cv]() mutable {
+
                     if (auto shared = comp_ptr.lock())
                         shared->fixed_update(dt);
+
+                    {
+                        std::lock_guard lock(counter_mutex);
+                        counter--;
+                        cv.notify_all();
+                    }
                 }, FIXED_UPDATE_PRIORITY));
             }
         }
 
-        { // Start children
+        { // Update children
             std::shared_lock lock(child_mutex);
 
             for (auto& obj : children) {
-                obj.get()->fixed_update(dt, queue);
+                obj.get()->fixed_update(dt, counter, counter_mutex, cv, queue);
             }
         }
     }
@@ -159,22 +187,24 @@ namespace Ferrite::Core::Classes {
         // Add empty object
         std::unique_lock lock(child_mutex);
 
-        std::weak_ptr<Object> out = children.emplace_back();
+        std::weak_ptr out = children.emplace_back(std::make_shared<Object>());
 
         return out;
     }
 
     std::weak_ptr<Object> Object::add_object(const ObjectPrefab& prefab) noexcept {
+
+
         auto obj = add_object();
 
         if (auto shared = obj.lock()) {
+
             std::unique_lock lock(child_mutex);
 
             shared->name = prefab.name;
             shared->rehash_name();
 
             shared->tags = std::move(prefab.tags);
-
             for (const auto& comp : prefab.components) {
                 shared->add_component(comp);
             }
@@ -187,9 +217,7 @@ namespace Ferrite::Core::Classes {
         return obj;
     }
 
-    std::weak_ptr<Object> Object::add_object(const std::weak_ptr<Object>&) noexcept {}
-
-    template <typename T, typename... Args> std::weak_ptr<T> Object::add_component(Args&&... args) noexcept {
+    template <typename T, typename... Args> std::weak_ptr<T> Object::add_component(Args&&... args) {
         std::unique_lock lock(component_mutex);
 
         auto shared = std::make_shared<T>(std::forward<Args>(args)...);
@@ -200,9 +228,8 @@ namespace Ferrite::Core::Classes {
 
         return out;
     }
-    void Object::add_component(const ComponentPrefab& prefab) noexcept {
-        std::unique_lock lock(component_mutex);
 
+    void Object::add_component(const ComponentPrefab& prefab) {
         PrefabManager::apply_component(*this, prefab);
     }
 
@@ -362,21 +389,32 @@ namespace Ferrite::Core::Classes {
         }
     }
 
-    template <typename T> std::size_t PrefabManager::register_component(std::string name) noexcept {
+    template <typename T> std::size_t PrefabManager::register_component() noexcept {
         const std::size_t pos = constructors.size();
 
-        constructors.emplace_back([](Object& obj, const ComponentPrefab& prefab) {
-            obj.add_component<T>(prefab);
+        constructors.emplace_back(typeid(T), [](Object& obj, const ComponentPrefab& prefab) {
+            obj.add_component<T>(prefab.data);
         });
-
-        if (!name.empty())
-            name_to_index[name] = pos;
 
         return pos;
     }
 
+    template <typename T> std::size_t PrefabManager::get_component_id() noexcept {
+
+        std::type_index t = typeid(T);
+
+        for (std::size_t i = 0; i < constructors.size(); i++) {
+            if (constructors[i].id == t)
+                return i;
+        }
+
+        return SIZE_MAX;
+    }
+
+
     void PrefabManager::apply_component(Object& obj, const ComponentPrefab& prefab) noexcept {
-        if (prefab.id != 0 && constructors.size() > prefab.id)
-            constructors[prefab.id](obj, prefab);
+        if (constructors.size() > prefab.id) {
+            constructors[prefab.id].func(obj, prefab);
+        }
     }
 }

@@ -35,12 +35,10 @@ target_sources(FerriteEngine-Core
         Time/TimeVariables.cppm
         Time/Timer.cppm
 
-        # Initialization
-        Initialization/Initialization.cppm
-        Initialization/ConstexprTypes.cppm
-        Initialization/YAML.cppm
-        Initialization/YAMLToPrefab.cppm
+        # Debugging
+        Debug/Debug.cppm
 )
 
 target_compile_definitions(FerriteEngine-Core PRIVATE FERRITE_DETERMINISTIC)
-#target_compile_definitions(FerriteEngine-Core PUBLIC FERRITE_EXCEPTIONS_ALLOWED)
+target_compile_definitions(FerriteEngine-Core PRIVATE DEBUG)
+target_compile_definitions(FerriteEngine-Core PUBLIC FERRITE_EXCEPTIONS_ALLOWED)
