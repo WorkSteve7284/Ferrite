@@ -23,4 +23,4 @@ namespace Ferrite::Core::Classes {
         std::vector<ObjectPrefab> children;
     };
 
-}
+}  // namespace Ferrite::Core::Classes

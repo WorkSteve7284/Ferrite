@@ -22,9 +22,12 @@ namespace Ferrite::Core::Time {
     private:
 
     std::mutex func_mutex;
+
     std::priority_queue<
-    std::tuple<double, std::function<void(void)>>,
-    std::vector<std::tuple<double, std::function<void(void)>>>, TupleComparator> funcs;
+        std::tuple<double, std::function<void(void)>>,
+        std::vector<std::tuple<double, std::function<void(void)>>>,
+        TupleComparator
+    > funcs;
 
     public:
         // add with instance

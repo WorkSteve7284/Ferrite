@@ -12,128 +12,93 @@ export module Ferrite.Core.Debug;
 
 import Ferrite.Core.Config;
 
-namespace Ferrite::Core::Debug {
+namespace Ferrite::Core {
 
+    export class Debug {
+    public:
 
+        template <typename... Args>
+        static void log(std::format_string<Args...> fmt, Args&&... args);
+        static void log(std::string_view message);
 
-    export enum class MessageType {
-        INFO,
-        WARNING,
-        ERROR
-    };
-    export void log(std::string message);
-    export template <typename... Args> void log(const std::format_string<Args...> fmt, Args&&... args);
+        template <typename... Args>
+        static void warn(std::format_string<Args...> fmt, Args&&... args);
+        static void warn(std::string_view message);
 
-    export void warn(std::string message);
-    export template <typename... Args> void warn(const std::format_string<Args...> fmt, Args&&... args);
+        template <typename... Args>
+        static void error(std::format_string<Args...> fmt, Args&&... args);
+        static void error(std::string_view message);
 
-    export void error(std::string message);
-    export template <typename... Args> void error(const std::format_string<Args...> fmt, Args&&... args);
+    private:
+        std::mutex mutex;
+        std::ofstream file{Config::FERRITE_DEBUG_LOG}; std::queue<std::string> queue;
 
-    export void print_messages();
+        static Debug instance;
 
-    std::mutex mutex;
-    std::queue<std::string> message_queue;
+        enum class MessageType {
+            LOG,
+            WARN,
+            ERROR
+        };
 
-    void log(std::string message) {
-        if constexpr (FERRITE_DEBUG) {
-
-            std::lock_guard lock(mutex);
-
-            const auto time = std::chrono::system_clock::now();
-
-            message_queue.emplace(std::format("[{:%x, %X}] INFO: {}", time, message));
-        }
-    }
-
-    template <typename... Args> void log(const std::format_string<Args...> fmt, Args&&... args) {
-        if constexpr (FERRITE_DEBUG) {
-            std::lock_guard lock(mutex);
-
-            const auto time = std::chrono::system_clock::now();
-            const std::string message = std::format(fmt, std::forward<Args>(args)...);
-            message_queue.emplace(std::format("[{:%x, %X}] INFO: {}", time, message));
-        }
-    }
-
-    void warn(std::string message) {
-        if constexpr (FERRITE_DEBUG) {
-
-            std::lock_guard lock(mutex);
-
-            const auto time = std::chrono::system_clock::now();
-
-            message_queue.emplace(std::format("[{:%x, %X}] WARN: {}", time, message));
-        }
-    }
-
-    template <typename... Args> void warn(const std::format_string<Args...> fmt, Args&&... args) {
-        if constexpr (FERRITE_DEBUG) {
-            std::lock_guard lock(mutex);
-
-            const auto time = std::chrono::system_clock::now();
-            const std::string message = std::format(fmt, std::forward<Args>(args)...);
-            message_queue.emplace(std::format("[{:%x, %X}] WARN: {}", time, message));
-        }
-    }
-
-    struct DebugFile {
-        std::ofstream file;
-
-        DebugFile(const char* c) {
-            file.open(c);
-        }
-
-        void writeln(const std::string& str) {
-            if (file.is_open())
-                file << str << '\n';
-        }
+        void _log(MessageType type, std::string_view msg);
     };
 
-    DebugFile debug_file{FERRITE_DEBUG_LOG};
-
-    void error(std::string message) {
-        if constexpr (FERRITE_DEBUG) {
-
-            std::lock_guard lock(mutex);
-
-            const auto time = std::chrono::system_clock::now();
-
-            const std::string full_message = std::format("[{:%x, %X}] ERROR: {}", time, message);
-
-            debug_file.writeln(full_message);
-            std::println("{}", full_message);
+    template <typename... Args>
+    void Debug::log(std::format_string<Args...> fmt, Args&&... args) {
+        if constexpr (Config::FERRITE_DEBUG) {
+            instance._log(MessageType::LOG, std::format(fmt, std::forward<Args>(args)...));
         }
     }
-
-    template <typename... Args> void error(const std::format_string<Args...> fmt, Args&&... args) {
-        if constexpr (FERRITE_DEBUG) {
-            std::lock_guard lock(mutex);
-
-            const auto time = std::chrono::system_clock::now();
-            const std::string message = std::format(fmt, std::forward<Args>(args)...);
-            const std::string full_message = std::format("[{:%x, %X}] ERROR: {}", time, message);
-
-            debug_file.writeln(full_message);
-            std::println("{}", full_message);
+    void Debug::log(std::string_view message) {
+        if constexpr (Config::FERRITE_DEBUG) {
+            instance._log(MessageType::LOG, message);
         }
     }
+    template <typename... Args>
+    void Debug::warn(std::format_string<Args...> fmt, Args&&... args) {
+        if constexpr (Config::FERRITE_DEBUG) {
+            instance._log(MessageType::WARN, std::format(fmt, std::forward<Args>(args)...));
+        }
+    }
+    void Debug::warn(std::string_view message) {
+        if constexpr (Config::FERRITE_DEBUG) {
+            instance._log(MessageType::WARN, message);
+        }
+    }
+    template <typename... Args>
+    void Debug::error(std::format_string<Args...> fmt, Args&&... args) {
+        instance._log(MessageType::ERROR, std::format(fmt, std::forward<Args>(args)...));
+    }
+    void Debug::error(std::string_view message) {
+        instance._log(MessageType::ERROR, message);
+    }
 
+    void Debug::_log(MessageType type, std::string_view msg) {
+        const auto now = std::chrono::system_clock::now();
+        const auto zoned_time = std::chrono::zoned_time{std::chrono::current_zone(), now};
 
-
-    void print_messages() {
-        if constexpr (FERRITE_DEBUG) {
-
-            std::lock_guard lock(mutex);
-
-
-            while (!message_queue.empty()) {
-                std::println("{}", message_queue.front());
-
-                debug_file.writeln(message_queue.front());
-
-                message_queue.pop();
+        const std::string prefix = [=]() {
+            switch (type) {
+                case MessageType::LOG:
+                    return "INFO";
+                case MessageType::WARN:
+                    return "WARN";
+                case MessageType::ERROR:
+                    return "ERROR";
             }
+        }();
+
+        std::lock_guard lock(mutex);
+
+        const auto message = std::format("[{:%x, %X}] {}: {}", zoned_time, prefix, msg);
+
+        std::println("{}", message);
+
+        if (file) {
+            file << message << '\n';
         }
     }
-}
+
+    Debug Debug::instance{};
+}  // namespace Ferrite::Core

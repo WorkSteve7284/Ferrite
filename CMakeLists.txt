@@ -3,11 +3,14 @@ cmake_minimum_required(VERSION 3.30)
 project(Ferrite)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+set(CMAKE_BUILD_TYPE Debug)
 
 # Compile engine
 add_subdirectory(engine)
 
 # Compile external
+#add_subdirectory(external/glfw)
+#add_subdirectory(external/glad)
 
 # Compile game
 set(GAME "" CACHE STRING "Which game to compile")

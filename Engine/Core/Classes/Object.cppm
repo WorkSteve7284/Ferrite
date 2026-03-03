@@ -10,6 +10,8 @@ module;
 #include <typeindex>
 #include <cstdint>
 #include <mutex>
+#include <algorithm>
+#include <execution>
 
 export module Ferrite.Core.Classes.Object;
 
@@ -45,7 +47,6 @@ namespace Ferrite::Core::Classes {
 
         void start(Jobs::JobQueue& queue) const noexcept;
         void update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept;
-        void late_update(double dt);
         void fixed_update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept;
 
         std::weak_ptr<Object> add_object() noexcept;
@@ -55,15 +56,15 @@ namespace Ferrite::Core::Classes {
         template <typename T, typename... Args> std::weak_ptr<T> add_component(Args&&...);
         void add_component(const ComponentPrefab&);
 
-        std::weak_ptr<Object> find_object_with_name(const std::string& name) const noexcept(!EXCEPTIONS_ALLOWED);
-        std::weak_ptr<Object> find_object_with_tag(const std::string& tag) const noexcept(!EXCEPTIONS_ALLOWED);
-        std::weak_ptr<Object> find_object_with_tags(const std::vector<std::string>& tags) const noexcept(!EXCEPTIONS_ALLOWED);
+        std::weak_ptr<Object> find_object_with_name(const std::string& name) const noexcept(!Config::EXCEPTIONS_ALLOWED);
+        std::weak_ptr<Object> find_object_with_tag(const std::string& tag) const noexcept(!Config::EXCEPTIONS_ALLOWED);
+        std::weak_ptr<Object> find_object_with_tags(const std::vector<std::string>& tags) const noexcept(!Config::EXCEPTIONS_ALLOWED);
 
-        std::vector<std::weak_ptr<Object>> find_objects_with_name(const std::string& name) const noexcept(!EXCEPTIONS_ALLOWED);
-        std::vector<std::weak_ptr<Object>> find_objects_with_tag(const std::string& tag) const noexcept(!EXCEPTIONS_ALLOWED);
-        std::vector<std::weak_ptr<Object>> find_objects_with_tags(const std::vector<std::string>& tags) const noexcept(!EXCEPTIONS_ALLOWED);
+        std::vector<std::weak_ptr<Object>> find_objects_with_name(const std::string& name) const noexcept(!Config::EXCEPTIONS_ALLOWED);
+        std::vector<std::weak_ptr<Object>> find_objects_with_tag(const std::string& tag) const noexcept(!Config::EXCEPTIONS_ALLOWED);
+        std::vector<std::weak_ptr<Object>> find_objects_with_tags(const std::vector<std::string>& tags) const noexcept(!Config::EXCEPTIONS_ALLOWED);
 
-        template <typename T> std::weak_ptr<T> find_component() const noexcept(!EXCEPTIONS_ALLOWED);
+        template <typename T> std::weak_ptr<T> find_component() const noexcept(!Config::EXCEPTIONS_ALLOWED);
         template <typename T> bool has_component() const noexcept;
 
         void rehash_name() noexcept;
@@ -93,24 +94,34 @@ namespace Ferrite::Core::Classes {
         { // Start components
             std::shared_lock lock(component_mutex);
 
-            for (auto& comp : components) {
+            std::for_each(
+                std::execution::par_unseq,
+                components.begin(),
+                components.end(),
+                [&queue](const std::shared_ptr<Component<Object>>& comp) {
 
-                std::weak_ptr<Component<Object>> comp_ptr{comp};
+                    std::weak_ptr<Component<Object>> comp_ptr{comp};
 
-                queue.add_job(Jobs::Job([=]() mutable {
-                    if (auto shared = comp_ptr.lock())
-                        shared->start();
-                }, FIXED_UPDATE_PRIORITY+1));
+                    queue.add_job(Jobs::Job([=]() mutable {
+                        if (auto shared = comp_ptr.lock())
+                            shared->start();
+                    }, Config::FIXED_UPDATE_PRIORITY + 1));
 
-            }
+                }
+            );
         }
 
         { // Start children
             std::shared_lock lock(child_mutex);
 
-            for (auto& obj : children) {
-                obj->start(queue);
-            }
+            std::for_each(
+                std::execution::par_unseq,
+                children.begin(),
+                children.end(),
+                [&queue](const std::shared_ptr<Object>& obj) {
+                    obj->start(queue);
+                }
+            );
         }
     }
 
@@ -118,93 +129,98 @@ namespace Ferrite::Core::Classes {
         { // Update components
             std::shared_lock lock(component_mutex);
 
-            for (auto& comp : components) {
-
-                std::weak_ptr<Component<Object>> comp_ptr{comp};
-
-                {
-                    std::lock_guard lock(counter_mutex);
-                    counter++;
-                }
-
-                queue.add_job(Jobs::Job([=, &counter, &counter_mutex, &cv]() mutable {
-                    if (auto shared = comp_ptr.lock())
-                        shared->update(dt);
+            std::for_each(
+                std::execution::par_unseq,
+                components.begin(),
+                components.end(),
+                [&](const std::shared_ptr<Component<Object>>& comp) {
 
                     {
                         std::lock_guard lock(counter_mutex);
-                        counter--;
-                        cv.notify_all();
+                        counter++;
                     }
-                }, UPDATE_PRIORITY));
-            }
+
+                    std::weak_ptr<Component<Object>> comp_ptr{comp};
+
+                    queue.add_job(Jobs::Job([=, &counter, &counter_mutex, &cv]() mutable {
+                        if (auto shared = comp_ptr.lock())
+                            shared->update(dt);
+
+                        {
+                            std::lock_guard lock(counter_mutex);
+                            counter--;
+                            if (counter == 0)
+                                cv.notify_all();
+                        }
+                    }, Config::UPDATE_PRIORITY));
+                }
+            );
         }
 
         { // Update children
             std::shared_lock lock(child_mutex);
 
-            for (auto& obj : children) {
-                obj->update(dt, counter, counter_mutex, cv, queue);
-            }
-        }
-    }
-
-    void Object::late_update(double dt) {
-        { // Update components
-            std::lock_guard lock(component_mutex);
-
-            for (auto& comp : components) {
-                comp->late_update(dt);
-            }
-        }
-
-        { // Update children
-            std::lock_guard lock(child_mutex);
-
-            for (auto& obj : children) {
-                obj->late_update(dt);
-            }
+            std::for_each(
+                std::execution::par_unseq,
+                children.begin(),
+                children.end(),
+                [&](const std::shared_ptr<Object>& obj) {
+                    obj->update(dt, counter, counter_mutex, cv, queue);
+                }
+            );
         }
     }
 
     void Object::fixed_update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept {
         { // Update components
             std::shared_lock lock(component_mutex);
-            for (auto& comp : components) {
 
-                std::weak_ptr<Component<Object>> comp_ptr{comp};
-
-                {
-                    std::lock_guard lock(counter_mutex);
-                    counter++;
-                }
-
-                queue.add_job(Jobs::Job([=, &counter, &counter_mutex, &cv]() mutable {
-
-                    if (auto shared = comp_ptr.lock())
-                        shared->fixed_update(dt);
+            std::for_each(
+                std::execution::par_unseq,
+                components.begin(),
+                components.end(),
+                [&](const std::shared_ptr<Component<Object>>& comp) {
 
                     {
                         std::lock_guard lock(counter_mutex);
-                        counter--;
-                        cv.notify_all();
+                        counter++;
                     }
-                }, FIXED_UPDATE_PRIORITY));
-            }
+
+                    std::weak_ptr<Component<Object>> comp_ptr{comp};
+
+                    queue.add_job(Jobs::Job([=, &counter, &counter_mutex, &cv]() mutable {
+
+                        if (auto shared = comp_ptr.lock())
+                            shared->fixed_update(dt);
+
+                        {
+                            std::lock_guard lock(counter_mutex);
+                            counter--;
+                            if (counter == 0)
+                                cv.notify_all();
+                        }
+                    }, Config::FIXED_UPDATE_PRIORITY));
+                }
+            );
         }
 
         { // Update children
             std::shared_lock lock(child_mutex);
 
-            for (auto& obj : children) {
-                obj->fixed_update(dt, counter, counter_mutex, cv, queue);
-            }
+            std::for_each(
+                std::execution::par_unseq,
+                children.begin(),
+                children.end(),
+                [&](const std::shared_ptr<Object>& obj) {
+                    obj->fixed_update(dt, counter, counter_mutex, cv, queue);
+                }
+            );
         }
     }
 
     std::weak_ptr<Object> Object::add_object() noexcept {
         // Add empty object
-        std::unique_lock lock(child_mutex);
+        std::lock_guard lock(child_mutex);
 
         std::weak_ptr out = children.emplace_back(std::make_shared<Object>());
 
@@ -213,12 +229,11 @@ namespace Ferrite::Core::Classes {
 
     std::weak_ptr<Object> Object::add_object(const ObjectPrefab& prefab) noexcept {
 
-
         auto obj = add_object();
 
         if (auto shared = obj.lock()) {
 
-            std::unique_lock lock(child_mutex);
+            std::lock_guard lock(child_mutex);
 
             shared->name = prefab.name;
             shared->rehash_name();
@@ -237,7 +252,7 @@ namespace Ferrite::Core::Classes {
     }
 
     template <typename T, typename... Args> std::weak_ptr<T> Object::add_component(Args&&... args) {
-        std::unique_lock lock(component_mutex);
+        std::lock_guard lock(component_mutex);
 
         auto shared = std::make_shared<T>(std::forward<Args>(args)...);
 
@@ -252,7 +267,7 @@ namespace Ferrite::Core::Classes {
         PrefabManager::apply_component(*this, prefab);
     }
 
-    std::weak_ptr<Object> Object::find_object_with_name(const std::string& name) const noexcept(!EXCEPTIONS_ALLOWED) {
+    std::weak_ptr<Object> Object::find_object_with_name(const std::string& name) const noexcept(!Config::EXCEPTIONS_ALLOWED) {
         std::shared_lock lock(child_mutex);
 
         std::size_t hashed = std::hash<std::string>()(name);
@@ -263,13 +278,13 @@ namespace Ferrite::Core::Classes {
                 return obj;
         }
 
-        if constexpr (EXCEPTIONS_ALLOWED)
+        if constexpr (Config::EXCEPTIONS_ALLOWED)
             throw Ferrite::Core::Exceptions::NoObjectFound(std::format("No object with the specified name \"{}\"was found!", name));
         else
             return std::weak_ptr<Object>();
     }
 
-    std::weak_ptr<Object> Object::find_object_with_tag(const std::string& tag) const noexcept(!EXCEPTIONS_ALLOWED) {
+    std::weak_ptr<Object> Object::find_object_with_tag(const std::string& tag) const noexcept(!Config::EXCEPTIONS_ALLOWED) {
         std::shared_lock lock(child_mutex);
 
         for (auto& obj : children) {
@@ -278,13 +293,13 @@ namespace Ferrite::Core::Classes {
                 return obj;
         }
 
-        if constexpr (EXCEPTIONS_ALLOWED)
+        if constexpr (Config::EXCEPTIONS_ALLOWED)
             throw Exceptions::NoObjectFound(std::format("No object with the specified tag \"{}\" was found!", tag));
         else
             return std::weak_ptr<Object>();
     }
 
-    std::weak_ptr<Object> Object::find_object_with_tags(const std::vector<std::string>& tags) const noexcept(!EXCEPTIONS_ALLOWED) {
+    std::weak_ptr<Object> Object::find_object_with_tags(const std::vector<std::string>& tags) const noexcept(!Config::EXCEPTIONS_ALLOWED) {
         std::shared_lock lock(child_mutex);
 
         for (auto& obj : children) {
@@ -301,13 +316,13 @@ namespace Ferrite::Core::Classes {
                 return obj;
         }
 
-        if constexpr (EXCEPTIONS_ALLOWED)
+        if constexpr (Config::EXCEPTIONS_ALLOWED)
             throw Ferrite::Core::Exceptions::NoObjectFound(std::format("No object with the specified tags \"{}\" was found!", tags));
         else
             return std::weak_ptr<Object>();
     }
 
-    std::vector<std::weak_ptr<Object>> Object::find_objects_with_name(const std::string& name) const noexcept(!EXCEPTIONS_ALLOWED) {
+    std::vector<std::weak_ptr<Object>> Object::find_objects_with_name(const std::string& name) const noexcept(!Config::EXCEPTIONS_ALLOWED) {
         std::shared_lock lock(child_mutex);
 
         std::size_t hashed = std::hash<std::string>()(name);
@@ -320,7 +335,7 @@ namespace Ferrite::Core::Classes {
                 out.emplace_back(obj);
         }
 
-        if constexpr (EXCEPTIONS_ALLOWED) {
+        if constexpr (Config::EXCEPTIONS_ALLOWED) {
             if (out.empty())
                 throw Exceptions::NoObjectFound(std::format("No objects with the specified name \"{}\" were found!", name));
         }
@@ -328,7 +343,7 @@ namespace Ferrite::Core::Classes {
         return out;
     }
 
-    std::vector<std::weak_ptr<Object>> Object::find_objects_with_tag(const std::string& tag) const noexcept(!EXCEPTIONS_ALLOWED) {
+    std::vector<std::weak_ptr<Object>> Object::find_objects_with_tag(const std::string& tag) const noexcept(!Config::EXCEPTIONS_ALLOWED) {
         std::shared_lock lock(child_mutex);
 
         std::vector<std::weak_ptr<Object>> out;
@@ -339,7 +354,7 @@ namespace Ferrite::Core::Classes {
                 out.emplace_back(obj);
         }
 
-        if constexpr (EXCEPTIONS_ALLOWED) {
+        if constexpr (Config::EXCEPTIONS_ALLOWED) {
             if (out.empty())
                 throw Exceptions::NoComponentFound(std::format("No objects with the specified tag \"{}\" were found!", tag));
         }
@@ -347,7 +362,7 @@ namespace Ferrite::Core::Classes {
         return out;
     }
 
-    std::vector<std::weak_ptr<Object>> Object::find_objects_with_tags(const std::vector<std::string>& tags) const noexcept(!EXCEPTIONS_ALLOWED) {
+    std::vector<std::weak_ptr<Object>> Object::find_objects_with_tags(const std::vector<std::string>& tags) const noexcept(!Config::EXCEPTIONS_ALLOWED) {
         std::shared_lock lock(child_mutex);
 
         std::vector<std::weak_ptr<Object>> out;
@@ -366,7 +381,7 @@ namespace Ferrite::Core::Classes {
                 out.emplace_back(obj);
         }
 
-        if constexpr (EXCEPTIONS_ALLOWED) {
+        if constexpr (Config::EXCEPTIONS_ALLOWED) {
             if (out.empty())
                 throw Exceptions::NoComponentFound(std::format("No objects with the specified tags \"{}\" were found!", tags));
         }
@@ -374,7 +389,7 @@ namespace Ferrite::Core::Classes {
         return out;
     }
 
-    template <typename T> std::weak_ptr<T> Object::find_component() const noexcept(!EXCEPTIONS_ALLOWED) {
+    template <typename T> std::weak_ptr<T> Object::find_component() const noexcept(!Config::EXCEPTIONS_ALLOWED) {
         std::shared_lock lock(component_mutex);
 
         for (auto& comp : components) {
@@ -382,7 +397,7 @@ namespace Ferrite::Core::Classes {
                 return comp;
         }
 
-        if constexpr (EXCEPTIONS_ALLOWED)
+        if constexpr (Config::EXCEPTIONS_ALLOWED)
             throw Exceptions::NoComponentFound("No component with the specified type was found!");
         else
             return ObjectPtr<T>();
@@ -402,10 +417,9 @@ namespace Ferrite::Core::Classes {
     void Object::rehash_name() noexcept {
         std::hash<std::string> hasher;
 
-        {
-            std::unique_lock lock(name_mutex);
-            name_hash = hasher(name);
-        }
+        std::lock_guard lock(name_mutex);
+        name_hash = hasher(name);
+
     }
 
     template <typename T> std::size_t PrefabManager::register_component() noexcept {

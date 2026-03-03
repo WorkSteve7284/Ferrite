@@ -16,3 +16,7 @@ add_library(Ferrite INTERFACE)
 # Core module
 add_subdirectory(Core)
 target_link_libraries(Ferrite INTERFACE FerriteEngine-Core)
+
+# Rendering
+#add_subdirectory(Rendering)
+#target_link_libraries(Ferrite INTERFACE FerriteEngine-Rendering)

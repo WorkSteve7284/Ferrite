@@ -21,7 +21,7 @@ namespace Ferrite::Core::Jobs {
     public:
 
         Worker(const Worker& worker) = delete;
-        Worker(JobQueue* queue) : jobs(queue), employed(true) {}
+        explicit Worker(JobQueue* queue) : jobs(queue), employed(true) {}
         Worker(Worker&& original) = default;
 
         void start() {
@@ -37,16 +37,19 @@ namespace Ferrite::Core::Jobs {
 
                 jobs->cv.wait(lock, [&]() {return !jobs->queue.empty() || !employed || waiting;});
 
-                if(!employed)
+                if(!employed) {
                     break;
+                }
 
-                if(waiting && jobs->queue.empty())
+                if(waiting && jobs->queue.empty()) {
                     break;
+                }
 
                 Job job = jobs->take_job();
 
-                if constexpr (DETERMINISTIC)
+                if constexpr (Config::DETERMINISTIC) {
                     lock.unlock();
+                }
 
                 job();
             }
@@ -58,8 +61,9 @@ namespace Ferrite::Core::Jobs {
 
             jobs->cv.notify_all();
 
-            if(thread.joinable())
+            if(thread.joinable()) {
                 thread.join();
+            }
         }
 
         ~Worker() {
@@ -67,9 +71,10 @@ namespace Ferrite::Core::Jobs {
 
             jobs->cv.notify_all();
 
-            if(thread.joinable())
+            if(thread.joinable()) {
                 thread.join();
+            }
         }
     };
 
-}
+}  // namespace Ferrite::Core::Jobs

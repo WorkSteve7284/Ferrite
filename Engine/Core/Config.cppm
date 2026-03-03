@@ -1,8 +1,12 @@
+module;
+
+#include <cstddef>
+
 export module Ferrite.Core.Config;
 
-namespace Ferrite::Core {
+namespace Ferrite::Core::Config {
 
-    export constexpr unsigned int MAX_THREADS = 32;
+    export constexpr std::size_t MAX_THREADS = 32;
 
     export constexpr double FIXED_DELTA_TIME = (1.0/60.0);
 
@@ -21,11 +25,11 @@ namespace Ferrite::Core {
         export constexpr bool DETERMINISTIC = false;
     #endif
 
-    #ifdef DEBUG
-        export constexpr bool FERRITE_DEBUG = true;
-    #else
+    #ifdef NDEBUG
         export constexpr bool FERRITE_DEBUG = false;
+    #else
+        export constexpr bool FERRITE_DEBUG = true;
     #endif
 
     export constexpr char FERRITE_DEBUG_LOG[] = "";
-}
+}  // namespace Ferrite::Core::Config

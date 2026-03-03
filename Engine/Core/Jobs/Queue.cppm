@@ -13,7 +13,7 @@ namespace Ferrite::Core::Jobs {
         std::function<void(void)> func;
         unsigned char priority;
 
-        Job(std::function<void(void)> new_func) : func(new_func), priority(0) {}
+        explicit Job(std::function<void(void)> new_func) : func(new_func), priority(0) {}
         Job(std::function<void(void)> new_func, unsigned char new_priority) : func(new_func), priority(new_priority) {}
 
         void operator()() const { func(); }
@@ -23,9 +23,8 @@ namespace Ferrite::Core::Jobs {
     public:
         std::vector<Job> queue;
         std::condition_variable cv;
-        mutable std::mutex mutex;
+        std::mutex mutex;
 
-    public:
         void add_job(const Job& job);
 
         Job take_job();
@@ -67,4 +66,4 @@ namespace Ferrite::Core::Jobs {
 
         return j;
     }
-}
+} // Ferrite::Core::Jobs

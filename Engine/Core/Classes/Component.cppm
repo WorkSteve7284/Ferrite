@@ -18,10 +18,9 @@ namespace Ferrite::Core::Classes {
 
             virtual void start() {}
             virtual void update(double dt) {}
-            virtual void late_update(double dt) {}
             virtual void fixed_update(double dt) {}
 
             virtual ~Component() {}
     };
 
-}
+}  // namespace Ferrite::Core::Classes

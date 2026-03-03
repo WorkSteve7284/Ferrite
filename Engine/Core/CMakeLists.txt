@@ -37,6 +37,12 @@ target_sources(FerriteEngine-Core
 
         # Debugging
         Debug/Debug.cppm
+
+        # Threading
+        Threads/Threads.cppm
+
+        # Event System
+        Events/Events.cppm
 )
 
 target_compile_definitions(FerriteEngine-Core PRIVATE FERRITE_DETERMINISTIC)
