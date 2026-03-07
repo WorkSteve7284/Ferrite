@@ -8,7 +8,7 @@ namespace Ferrite::Core::Config {
 
     export constexpr std::size_t MAX_THREADS = 32;
 
-    export constexpr double FIXED_DELTA_TIME = (1.0/60.0);
+    export constexpr double FIXED_DELTA_TIME = (1.0/FERRITE_FIXED_FRAMERATE);
 
     export constexpr unsigned char UPDATE_PRIORITY = 0;
     export constexpr unsigned char FIXED_UPDATE_PRIORITY = 3;
@@ -26,10 +26,16 @@ namespace Ferrite::Core::Config {
     #endif
 
     #ifdef NDEBUG
-        export constexpr bool FERRITE_DEBUG = false;
+        export constexpr bool DEBUG = false;
     #else
-        export constexpr bool FERRITE_DEBUG = true;
+        export constexpr bool DEBUG = true;
     #endif
 
-    export constexpr char FERRITE_DEBUG_LOG[] = "";
+    #ifdef FERRITE_PREVENT_LEAK
+        export constexpr bool PREVENT_MEMORY_LEAK = true;
+    #else
+        export constexpr bool PREVENT_MEMORY_LEAK = false;
+    #endif
+
+    export constexpr char DEBUG_LOG[] = FERRITE_DEBUG_LOG_FILE;
 }  // namespace Ferrite::Core::Config

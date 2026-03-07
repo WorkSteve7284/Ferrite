@@ -12,16 +12,21 @@ export module Ferrite.Core.Manager;
 import Ferrite.Core.Config;
 import Ferrite.Core.Classes;
 import Ferrite.Core.Jobs;
-import Ferrite.Core.Debug;
 import Ferrite.Core.Time;
 import Ferrite.Core.Threads;
 
 namespace Ferrite::Core {
 
+    using Clock = std::chrono::steady_clock;
+
+    double time_between(std::chrono::time_point<Clock> start, std::chrono::time_point<Clock> end) {
+        return std::chrono::duration_cast<std::chrono::nanoseconds>(end - start).count() * 1e-9;
+    };
+
     export class Manager {
     private:
 
-        std::shared_ptr<Classes::Object> top;
+        std::shared_ptr<Object> top;
 
         Jobs::JobQueue job_queue;
         std::vector<Jobs::Worker> workers;
@@ -45,15 +50,15 @@ namespace Ferrite::Core {
 
         void run();
 
-        Classes::Object* operator->() noexcept { return top.get(); }
-        Classes::Object& operator*() noexcept {return *top; }
+        Object* operator->() noexcept { return top.get(); }
+        Object& operator*() noexcept {return *top; }
     };
 
     Manager::Manager() noexcept {
 
-        top = std::make_shared<Classes::Object>();
+        top = std::make_shared<Object>();
 
-        Classes::Component<Classes::Object>::manager = top.get();
+        Component::manager = top.get();
 
         // Initialize timer
         Time::timer = top->add_component<Time::Timer>().lock().get();
@@ -88,33 +93,33 @@ namespace Ferrite::Core {
     }
 
     void Manager::run() {
-        auto start = std::chrono::steady_clock::now();
+        auto start = Clock::now();
 
         top->start(job_queue);
 
         std::condition_variable cv;
 
-        auto last_fixed_update = std::chrono::steady_clock::now();
+        auto last_fixed_update = Clock::now();
 
-        auto last_update = std::chrono::steady_clock::now();
+        auto last_update = Clock::now();
 
         while (running) {
 
             running = top->enabled;
-            Time::runtime = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - start).count() * 1e-9;
+            Time::runtime = time_between(start, Clock::now());
 
             if (update_counter == 0) {
 
-                const double dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - last_update).count() * 1e-9;
-                last_update = std::chrono::steady_clock::now();
+                const double dt = time_between(last_update, Clock::now());
+                last_update = Clock::now();
 
                 top->update(dt, update_counter, counter_mutex, cv, job_queue);
             }
 
-            const double fixed_dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - last_fixed_update).count() * 1e-9;
+            const double fixed_dt = time_between(last_fixed_update, Clock::now());
             if (fixed_update_counter == 0 && fixed_dt >= Config::FIXED_DELTA_TIME) {
 
-                last_fixed_update = std::chrono::steady_clock::now();
+                last_fixed_update = Clock::now();
 
                 top->fixed_update(fixed_dt, fixed_update_counter, counter_mutex, cv, job_queue);
             }
@@ -123,7 +128,7 @@ namespace Ferrite::Core {
             std::unique_lock lock(counter_mutex);
             cv.wait(lock, [&](){
 
-                const double dt = std::chrono::duration_cast<std::chrono::nanoseconds>(std::chrono::steady_clock::now() - last_fixed_update).count() * 1e-9;
+                const double dt = time_between(last_fixed_update, Clock::now());;
 
                 return update_counter == 0 || (fixed_update_counter == 0 && dt >= Config::FIXED_DELTA_TIME);
             });

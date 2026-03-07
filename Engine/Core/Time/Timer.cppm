@@ -11,13 +11,17 @@ export module Ferrite.Core.Time:Timer;
 import Ferrite.Core.Classes;
 import :TimeVariables;
 
-struct TupleComparator {
-    bool operator()(const std::tuple<double, std::function<void(void)>>& a, const std::tuple<double, std::function<void(void)>>& b) {
-        return std::get<0>(a) > std::get<0>(b);
-    }
-};
+
 
 namespace Ferrite::Core::Time {
+
+    // Compare the first value of a tuple
+    struct TupleComparator {
+        bool operator()(const std::tuple<double, std::function<void(void)>>& a, const std::tuple<double, std::function<void(void)>>& b) {
+            return std::get<0>(a) > std::get<0>(b);
+        }
+    };
+
     export class Timer :  public Classes::Component<Classes::Object> {
     private:
 
@@ -61,4 +65,4 @@ namespace Ferrite::Core::Time {
     };
 
     export Timer* timer;
-}
+} // Ferrite::Core::Time

@@ -31,67 +31,50 @@ namespace Ferrite::Core {
 
     private:
         std::mutex mutex;
-        std::ofstream file{Config::FERRITE_DEBUG_LOG}; std::queue<std::string> queue;
+        std::ofstream file{Config::DEBUG_LOG}; std::queue<std::string> queue;
 
         static Debug instance;
 
-        enum class MessageType {
-            LOG,
-            WARN,
-            ERROR
-        };
-
-        void _log(MessageType type, std::string_view msg);
+        void _log(const char* type, std::string_view msg);
     };
 
     template <typename... Args>
     void Debug::log(std::format_string<Args...> fmt, Args&&... args) {
-        if constexpr (Config::FERRITE_DEBUG) {
-            instance._log(MessageType::LOG, std::format(fmt, std::forward<Args>(args)...));
+        if constexpr (Config::DEBUG) {
+            instance._log("LOG", std::format(fmt, std::forward<Args>(args)...));
         }
     }
     void Debug::log(std::string_view message) {
-        if constexpr (Config::FERRITE_DEBUG) {
-            instance._log(MessageType::LOG, message);
+        if constexpr (Config::DEBUG) {
+            instance._log("LOG", message);
         }
     }
     template <typename... Args>
     void Debug::warn(std::format_string<Args...> fmt, Args&&... args) {
-        if constexpr (Config::FERRITE_DEBUG) {
-            instance._log(MessageType::WARN, std::format(fmt, std::forward<Args>(args)...));
+        if constexpr (Config::DEBUG) {
+            instance._log("WARN", std::format(fmt, std::forward<Args>(args)...));
         }
     }
     void Debug::warn(std::string_view message) {
-        if constexpr (Config::FERRITE_DEBUG) {
-            instance._log(MessageType::WARN, message);
+        if constexpr (Config::DEBUG) {
+            instance._log("WARN", message);
         }
     }
     template <typename... Args>
     void Debug::error(std::format_string<Args...> fmt, Args&&... args) {
-        instance._log(MessageType::ERROR, std::format(fmt, std::forward<Args>(args)...));
+        instance._log("ERROR", std::format(fmt, std::forward<Args>(args)...));
     }
     void Debug::error(std::string_view message) {
-        instance._log(MessageType::ERROR, message);
+        instance._log("ERROR", message);
     }
 
-    void Debug::_log(MessageType type, std::string_view msg) {
+    void Debug::_log(const char* type, std::string_view msg) {
         const auto now = std::chrono::system_clock::now();
         const auto zoned_time = std::chrono::zoned_time{std::chrono::current_zone(), now};
 
-        const std::string prefix = [=]() {
-            switch (type) {
-                case MessageType::LOG:
-                    return "INFO";
-                case MessageType::WARN:
-                    return "WARN";
-                case MessageType::ERROR:
-                    return "ERROR";
-            }
-        }();
-
         std::lock_guard lock(mutex);
 
-        const auto message = std::format("[{:%x, %X}] {}: {}", zoned_time, prefix, msg);
+        const auto message = std::format("[{:%x, %X}] {}: {}", zoned_time, type, msg);
 
         std::println("{}", message);
 

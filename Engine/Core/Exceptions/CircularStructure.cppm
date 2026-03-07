@@ -3,17 +3,17 @@ module;
 #include <string>
 #include <exception>
 
-export module Ferrite.Core.Exceptions:NoFileFound;
+export module Ferrite.Core.Exceptions:CircularStructure;
 
 import Ferrite.Core.Debug;
 
 namespace Ferrite::Core::Exceptions {
-    export class NoFileFound : public std::exception {
+    export class CircularStructure : public std::exception {
     private:
         std::string msg;
 
     public:
-        explicit NoFileFound(const std::string& message) : msg(message) {
+        explicit CircularStructure(const std::string& message) : msg(message) {
             Debug::error(message);
         }
 
@@ -21,4 +21,4 @@ namespace Ferrite::Core::Exceptions {
             return msg.c_str();
         }
     };
-} // namespace Ferrite::Core::Exceptions
+}  // namespace Ferrite::Core::Exceptions

@@ -22,6 +22,7 @@ target_sources(FerriteEngine-Core
         # Classes
         Classes/Classes.cppm
         Classes/Prefabs.cppm
+        Classes/PrefabManager.cppm
         Classes/Component.cppm
         Classes/Object.cppm
 
@@ -29,6 +30,7 @@ target_sources(FerriteEngine-Core
         Exceptions/Exceptions.cppm
         Exceptions/NoComponentFound.cppm
         Exceptions/NoObjectFound.cppm
+        Exceptions/CircularStructure.cppm
 
         # Time
         Time/Time.cppm
@@ -43,8 +45,12 @@ target_sources(FerriteEngine-Core
 
         # Event System
         Events/Events.cppm
+    PRIVATE
+        Classes/Object.cpp
+
 )
 
 target_compile_definitions(FerriteEngine-Core PRIVATE FERRITE_DETERMINISTIC)
-target_compile_definitions(FerriteEngine-Core PRIVATE DEBUG)
-target_compile_definitions(FerriteEngine-Core PUBLIC FERRITE_EXCEPTIONS_ALLOWED)
+target_compile_definitions(FerriteEngine-Core PRIVATE FERRITE_EXCEPTIONS_ALLOWED)
+target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_FIXED_FRAMERATE=60")
+target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_DEBUG_LOG_FILE=\"\"")

@@ -50,11 +50,14 @@ namespace Ferrite::Core::Threads {
     };
 
     ServerThread::ServerThread(ServerThread&& other) {
-        std::lock_guard lock(ref_mutex);
+        std::scoped_lock lock(ref_mutex, other.ref_mutex);
 
-        for (auto *ref : thread_refs) {
+        for (auto *ref : other.thread_refs) {
             ref->move_server(this);
         }
+
+        thread = std::move(other.thread);
+        thread_refs = std::move(other.thread_refs);
     }
 
     ServerThread::~ServerThread() {

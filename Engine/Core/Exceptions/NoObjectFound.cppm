@@ -21,4 +21,4 @@ namespace Ferrite::Core::Exceptions {
             return msg.c_str();
         }
     };
-}  // namespace Ferrite::Core::Exceptions
+} // namespace Ferrite::Core::Exceptions
