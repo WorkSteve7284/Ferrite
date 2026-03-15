@@ -9,7 +9,7 @@ set(CMAKE_BUILD_TYPE Debug)
 add_subdirectory(engine)
 
 # Compile external
-#add_subdirectory(external/glfw)
+add_subdirectory(external/glfw)
 #add_subdirectory(external/glad)
 
 # Compile game

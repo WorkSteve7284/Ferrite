@@ -2,6 +2,12 @@
 
 add_library(FerriteEngine-Core)
 
+option(FERRITE_EXCEPTIONS_ALLOWED "Allow exceptions to be thrown" OFF)
+option(FERRITE_PREVENT_LEAK "Prevent memory leaks whem moving objects" ON)
+option(FERRITE_DETERMINISTIC "Only allow one thread to work at a time (emulate single-threaded behavior, mostly)" OFF)
+set(FERRITE_FIXED_FRAMERATE "60" CACHE STRING "How many frames per second fixed_updates run")
+set(FERRITE_LOG_FILE "" CACHE STRING "File to write debug messages to")
+
 target_sources(FerriteEngine-Core
 
     PUBLIC
@@ -50,7 +56,18 @@ target_sources(FerriteEngine-Core
 
 )
 
-target_compile_definitions(FerriteEngine-Core PRIVATE FERRITE_DETERMINISTIC)
-target_compile_definitions(FerriteEngine-Core PRIVATE FERRITE_EXCEPTIONS_ALLOWED)
-target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_FIXED_FRAMERATE=60")
-target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_DEBUG_LOG_FILE=\"\"")
+if(FERRITE_EXCEPTIONS_ALLOWED)
+target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_EXCEPTIONS_ALLOWED")
+
+endif()
+
+if(FERRITE_PREVENT_LEAK)
+target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_PREVENT_LEAK")
+endif()
+
+if(FERRITE_DETERMINISTIC)
+target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_DETERMINISTIC")
+endif()
+
+target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_DEBUG_LOG_FILE=\"${FERRITE_LOG_FILE}\"")
+target_compile_definitions(FerriteEngine-Core PRIVATE "FERRITE_FIXED_FRAMERATE=${FERRITE_FIXED_FRAMERATE}")
