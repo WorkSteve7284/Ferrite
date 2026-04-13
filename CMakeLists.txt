@@ -3,21 +3,26 @@ cmake_minimum_required(VERSION 3.30)
 project(Ferrite)
 
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
-set(CMAKE_BUILD_TYPE Debug)
+
+# Enable LTO on release builds
+if(CMAKE_BUILD_TYPE STREQUAL "Release" OR CMAKE_BUILD_TYPE STREQUAL "MinSizeRel")
+    include(CheckIPOSupported)
+
+    check_ipo_supported(RESULT ipo_supported)
+    if (ipo_supported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION ON)
+    endif()
+endif()
 
 # Compile engine
-add_subdirectory(engine)
-
-# Compile external
-add_subdirectory(external/glfw)
-#add_subdirectory(external/glad)
+add_subdirectory(Engine)
 
 # Compile game
 set(GAME "" CACHE STRING "Which game to compile")
 if(GAME)
 
     message(STATUS "Compiling ${GAME}")
-    add_subdirectory(games/${GAME})
+    add_subdirectory("${CMAKE_SOURCE_DIR}/Games/${GAME}")
 
 else()
 

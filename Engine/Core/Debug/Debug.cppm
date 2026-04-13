@@ -4,7 +4,7 @@ module;
 #include <format>
 #include <chrono>
 #include <queue>
-#include <print>
+#include <iostream>
 #include <mutex>
 #include <fstream>
 
@@ -35,40 +35,40 @@ namespace Ferrite::Core {
 
         static Debug instance;
 
-        void _log(const char* type, std::string_view msg);
+        void _log(const char* type, std::string_view msg, std::ostream& stream);
     };
 
     template <typename... Args>
     void Debug::log(std::format_string<Args...> fmt, Args&&... args) {
         if constexpr (Config::DEBUG) {
-            instance._log("LOG", std::format(fmt, std::forward<Args>(args)...));
+            instance._log("LOG", std::format(fmt, std::forward<Args>(args)...), std::cout);
         }
     }
     void Debug::log(std::string_view message) {
         if constexpr (Config::DEBUG) {
-            instance._log("LOG", message);
+            instance._log("LOG", message, std::cout);
         }
     }
     template <typename... Args>
     void Debug::warn(std::format_string<Args...> fmt, Args&&... args) {
         if constexpr (Config::DEBUG) {
-            instance._log("WARN", std::format(fmt, std::forward<Args>(args)...));
+            instance._log("WARN", std::format(fmt, std::forward<Args>(args)...), std::cout);
         }
     }
     void Debug::warn(std::string_view message) {
         if constexpr (Config::DEBUG) {
-            instance._log("WARN", message);
+            instance._log("WARN", message, std::cout);
         }
     }
     template <typename... Args>
     void Debug::error(std::format_string<Args...> fmt, Args&&... args) {
-        instance._log("ERROR", std::format(fmt, std::forward<Args>(args)...));
+        instance._log("ERROR", std::format(fmt, std::forward<Args>(args)...), std::cerr);
     }
     void Debug::error(std::string_view message) {
-        instance._log("ERROR", message);
+        instance._log("ERROR", message, std::cerr);
     }
 
-    void Debug::_log(const char* type, std::string_view msg) {
+    void Debug::_log(const char* type, std::string_view msg, std::ostream& stream) {
         const auto now = std::chrono::system_clock::now();
         const auto zoned_time = std::chrono::zoned_time{std::chrono::current_zone(), now};
 
@@ -76,7 +76,7 @@ namespace Ferrite::Core {
 
         const auto message = std::format("[{:%x, %X}] {}: {}", zoned_time, type, msg);
 
-        std::println("{}", message);
+        stream << message << '\n';
 
         if (file) {
             file << message << '\n';

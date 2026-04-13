@@ -10,8 +10,7 @@ set(CXX_MODULE_STD ON)
 
 # Compile & link modules
 
-# Core module
+# Compile engine modules
 add_subdirectory(Core)
-
-# Rendering
+add_subdirectory(Math)
 add_subdirectory(Rendering)

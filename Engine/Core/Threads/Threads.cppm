@@ -6,18 +6,24 @@ module;
 
 export module Ferrite.Core.Threads;
 
+import Ferrite.Core.Threads.ThreadObject;
+
 namespace Ferrite::Core::Threads {
 
     export class ThreadRef;
 
     export class ServerThread {
+
+        friend ThreadRef;
+
         std::mutex ref_mutex;
         std::vector<ThreadRef*> thread_refs;
+        ThreadObject object{};
 
         public:
             std::thread thread;
 
-            ServerThread() = default;
+            ServerThread();
             ServerThread(ServerThread&& other);
             ~ServerThread();
 
@@ -46,8 +52,12 @@ namespace Ferrite::Core::Threads {
         void move_server(ServerThread* new_pos);
         void destroy_server();
 
-        std::thread* thread() const;
+        ThreadObject* thread() const;
     };
+
+    ServerThread::ServerThread() {
+        thread = std::thread{&ThreadObject::run, &object};
+    }
 
     ServerThread::ServerThread(ServerThread&& other) {
         std::scoped_lock lock(ref_mutex, other.ref_mutex);
@@ -56,7 +66,8 @@ namespace Ferrite::Core::Threads {
             ref->move_server(this);
         }
 
-        thread = std::move(other.thread);
+        object = std::move(other.object);
+        thread = std::thread{&ThreadObject::run, &object};
         thread_refs = std::move(other.thread_refs);
     }
 
@@ -66,6 +77,9 @@ namespace Ferrite::Core::Threads {
         for (auto *ref : thread_refs) {
             ref->destroy_server();
         }
+
+        object.stop();
+        thread.join();
     }
 
     void ServerThread::add_reference(ThreadRef* reference) {
@@ -132,9 +146,9 @@ namespace Ferrite::Core::Threads {
         server = nullptr;
     }
 
-    std::thread* ThreadRef::thread() const {
+    ThreadObject* ThreadRef::thread() const {
         if (server != nullptr) {
-            return &server->thread;
+            return &server->object;
         }
         return nullptr;
     }

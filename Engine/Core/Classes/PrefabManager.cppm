@@ -4,6 +4,7 @@ module;
 #include <concepts>
 #include <functional>
 #include <typeindex>
+#include <cstdint>
 
 export module Ferrite.Core.Classes.PrefabManager;
 

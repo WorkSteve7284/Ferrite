@@ -1,50 +1,51 @@
 module;
 
-#include <exception>
 #if FERRITE_USE_VULKAN
 #define GLFW_INCLUDE_VULKAN
-#elifdef FERRITE_USE_OPENGL
-#include <glad/glad.h>
+#elif defined(FERRITE_USE_OPENGL)
+#include <glad/gl.h>
 #endif
 
 #include <GLFW/glfw3.h>
 
+#include <stdexcept>
 #include <string>
 
 export module Ferrite.Rendering.Window.GLFW;
 
 import Ferrite.Core.Debug;
+import Ferrite.Core.Config;
 import Ferrite.Rendering.Config;
 
 namespace Ferrite::Rendering::Window {
 
-    // Takes the place of ~GLFWWindow(), as it needs to run during the constructor
-    struct WindowTerminator {
-        GLFWwindow* window = nullptr;
-
-        ~WindowTerminator();
-    };
-
     // Wrap GLFW window
     export class GLFWWindow {
     public:
-        GLFWWindow(int width=640, int height=480, std::string title="FerriteEngine");
+        GLFWWindow() = default;
+        ~GLFWWindow();
+
+        void init_window(int width, int height, std::string title) noexcept(!Core::Config::EXCEPTIONS_ALLOWED);
 
         bool should_close() const noexcept;
+
+        GLFWwindow* get_window() noexcept;
 
         static void error_callback(int error, const char *description);
 
     private:
-        WindowTerminator terminator;
         GLFWwindow* window = nullptr;
     };
 
-    GLFWWindow::GLFWWindow(int width, int height, std::string title) {
 
-        terminator = WindowTerminator();
+
+    void GLFWWindow::init_window(int width, int height, std::string title) noexcept(!Core::Config::EXCEPTIONS_ALLOWED) {
 
         if (!glfwInit()) {
-            throw std::exception("GLFW Failed to initialize!");
+            if constexpr (Core::Config::EXCEPTIONS_ALLOWED) {
+                throw std::runtime_error("GLFW Failed to initialize!");
+            }
+            glfwTerminate();
         }
 
         glfwSetErrorCallback(&GLFWWindow::error_callback);
@@ -56,23 +57,26 @@ namespace Ferrite::Rendering::Window {
         window = glfwCreateWindow(width, height, title.c_str(), nullptr, nullptr);
 
         if (!window) {
-            throw std::exception("GLFW Window failed to create!");
+            if constexpr (Core::Config::EXCEPTIONS_ALLOWED) {
+                throw std::runtime_error("GLFW Window failed to create!");
+            }
+            glfwTerminate();
         }
-        else {
-            terminator.window = window;
-        }
-
     }
 
     bool GLFWWindow::should_close() const noexcept {
         return glfwWindowShouldClose(window);
     }
 
+    GLFWwindow* GLFWWindow::get_window() noexcept {
+        return window;
+    }
+
     void GLFWWindow::error_callback(int error, const char *description) {
         Core::Debug::error("GLFW ({}), {}", error, description);
     }
 
-    WindowTerminator::~WindowTerminator() {
+    GLFWWindow::~GLFWWindow() {
 
         if (window) {
             glfwDestroyWindow(window);

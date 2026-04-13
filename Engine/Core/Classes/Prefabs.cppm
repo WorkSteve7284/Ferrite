@@ -1,7 +1,7 @@
 module;
 
 #include <cstdint>
-#include <unordered_set>
+#include <set>
 #include <string>
 #include <vector>
 #include <any>
@@ -17,7 +17,7 @@ namespace Ferrite::Core::Classes {
 
     export struct ObjectPrefab {
         std::string name;
-        std::unordered_set<std::string> tags;
+        std::set<std::string> tags;
 
         std::vector<ComponentPrefab> components;
         std::vector<ObjectPrefab> children;

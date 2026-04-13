@@ -1,9 +1,11 @@
 module;
 
-#include <memory>
-#include <string>
+#include <mutex>
 #include <shared_mutex>
+#include <algorithm>
 #include <execution>
+#include <memory>
+#include <condition_variable>
 #include <format>
 
 module Ferrite.Core.Classes.Object;
@@ -219,8 +221,14 @@ namespace Ferrite::Core::Classes {
 
             std::scoped_lock lock(owner->child_mutex, to_shared->child_mutex);
 
-            to_shared->children.emplace_back(shared_from_this());
-            std::erase(owner->children, shared_from_this());
+            auto shared = std::ranges::find_if(
+                owner->children,
+                [this](const auto& ptr) {
+                    return ptr.get() == this;
+                }
+            );
+            to_shared->children.emplace_back(*shared);
+            std::erase(owner->children, *shared);
 
             owner = to_shared.get();
 
@@ -232,10 +240,17 @@ namespace Ferrite::Core::Classes {
 
         std::size_t hashed = std::hash<std::string>()(name);
 
-        for (auto& obj : children) {
-            std::shared_lock<std::shared_mutex> lock2(obj.get()->name_mutex);
-            if (obj.get()->name_hash == hashed)
-                return obj;
+        auto it = std::find_if(
+            std::execution::unseq,
+            children.begin(), children.end(),
+            [hashed] (const auto& obj)->bool {
+                std::shared_lock<std::shared_mutex> lock2(obj->id_mutex);
+                return obj->name_hash == hashed;
+            }
+        );
+
+        if (it != children.end()) {
+            return *it;
         }
 
         if constexpr (Config::EXCEPTIONS_ALLOWED) {
@@ -250,7 +265,7 @@ namespace Ferrite::Core::Classes {
         std::shared_lock lock(child_mutex);
 
         for (auto& obj : children) {
-            std::shared_lock lock2(obj.get()->tag_mutex);
+            std::shared_lock lock2(obj.get()->id_mutex);
             if(obj.get()->tags.contains(tag))
                 return obj;
         }
@@ -271,7 +286,7 @@ namespace Ferrite::Core::Classes {
             bool match = true;
 
             for (auto& tag : tags) {
-                std::shared_lock lock2(obj.get()->tag_mutex);
+                std::shared_lock lock2(obj.get()->id_mutex);
                 if (!obj.get()->tags.contains(tag))
                     match = false;
             }
@@ -296,7 +311,7 @@ namespace Ferrite::Core::Classes {
         std::vector<std::weak_ptr<Object>> out;
 
         for (auto& obj : children) {
-            std::shared_lock lock2(obj.get()->name_mutex);
+            std::shared_lock lock2(obj.get()->id_mutex);
             if (obj.get()->name_hash == hashed)
                 out.emplace_back(obj);
         }
@@ -316,7 +331,7 @@ namespace Ferrite::Core::Classes {
         std::vector<std::weak_ptr<Object>> out;
 
         for (auto& obj : children) {
-            std::shared_lock lock2(obj.get()->tag_mutex);
+            std::shared_lock lock2(obj.get()->id_mutex);
             if(obj.get()->tags.contains(tag))
                 out.emplace_back(obj);
         }
@@ -340,7 +355,7 @@ namespace Ferrite::Core::Classes {
             bool match = true;
 
             for (auto& tag : tags) {
-                std::shared_lock lock2(obj.get()->tag_mutex);
+                std::shared_lock lock2(obj.get()->id_mutex);
                 if (!obj.get()->tags.contains(tag))
                     match = false;
             }
@@ -359,9 +374,9 @@ namespace Ferrite::Core::Classes {
     }
 
     void Object::rehash_name() noexcept {
-        std::hash<std::string> hasher;
+        const static std::hash<std::string> hasher;
 
-        std::lock_guard lock(name_mutex);
+        std::lock_guard lock(id_mutex);
         name_hash = hasher(name);
 
     }

@@ -6,6 +6,8 @@ module;
 #include <condition_variable>
 #include <mutex>
 #include <functional>
+#include <thread>
+#include <queue>
 
 export module Ferrite.Core.Manager;
 
@@ -38,6 +40,8 @@ namespace Ferrite::Core {
         std::size_t fixed_update_counter = 0;
 
         std::vector<Threads::ServerThread> server_threads;
+        std::queue<std::function<void(void)>> main_thread_queue;
+        std::mutex queue_mutex;
 
         std::vector<std::function<void(Manager&)>> modules;
 
@@ -45,7 +49,10 @@ namespace Ferrite::Core {
         Manager() noexcept;
 
         void add_module(std::function<void(Manager&)>);
+
         Threads::ThreadRef make_server_thread();
+        void run_on_main_thread(std::function<void(void)>);
+
         void init();
 
         void run();
@@ -58,7 +65,7 @@ namespace Ferrite::Core {
 
         top = std::make_shared<Object>();
 
-        Component::manager = top.get();
+        Component::top = top.get();
 
         // Initialize timer
         Time::timer = top->add_component<Time::Timer>().lock().get();
@@ -73,6 +80,11 @@ namespace Ferrite::Core {
         return Threads::ThreadRef(&server_threads.emplace_back());
     }
 
+    void Manager::run_on_main_thread(std::function<void(void)> func) {
+        std::lock_guard lock(queue_mutex);
+        main_thread_queue.emplace(func);
+    }
+
     void Manager::init() {
         for (auto& module_ : modules) {
             module_(*this);
@@ -81,7 +93,7 @@ namespace Ferrite::Core {
         // Initialize thread pool size
         const auto threads = std::clamp(
             std::thread::hardware_concurrency() - (1 + server_threads.size()),
-            1ull,
+            1uz,
             Config::MAX_THREADS
         );
 
@@ -105,6 +117,22 @@ namespace Ferrite::Core {
 
         while (running) {
 
+            { // Wait for updates to finish
+                std::unique_lock lock(counter_mutex);
+                cv.wait(lock, [&](){
+                    const double dt = time_between(last_fixed_update, Clock::now());;
+
+                    return update_counter == 0 || (fixed_update_counter == 0 && dt >= Config::FIXED_DELTA_TIME);
+                });
+            }
+            {
+                std::lock_guard lock(queue_mutex);
+                while(!main_thread_queue.empty()) {
+                    main_thread_queue.front()();
+                    main_thread_queue.pop();
+                }
+            }
+
             running = top->enabled;
             Time::runtime = time_between(start, Clock::now());
 
@@ -123,20 +151,10 @@ namespace Ferrite::Core {
 
                 top->fixed_update(fixed_dt, fixed_update_counter, counter_mutex, cv, job_queue);
             }
-
-            // Wait for updates to finish
-            std::unique_lock lock(counter_mutex);
-            cv.wait(lock, [&](){
-
-                const double dt = time_between(last_fixed_update, Clock::now());;
-
-                return update_counter == 0 || (fixed_update_counter == 0 && dt >= Config::FIXED_DELTA_TIME);
-            });
-
         }
 
         for (auto& worker : workers) {
             worker.wait_for_end();
         }
     }
-}
+} // namespace Ferrite::Core

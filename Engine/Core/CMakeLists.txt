@@ -48,6 +48,7 @@ target_sources(FerriteEngine-Core
 
         # Threading
         Threads/Threads.cppm
+        Threads/ThreadObject.cppm
 
         # Event System
         Events/Events.cppm

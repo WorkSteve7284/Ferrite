@@ -2,12 +2,14 @@ module;
 
 #include <concepts>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <vector>
 #include <string>
-#include <unordered_set>
-#include <mutex>
+#include <set>
 #include <algorithm>
+#include <execution>
+#include <condition_variable>
 
 export module Ferrite.Core.Classes.Object;
 
@@ -20,26 +22,25 @@ import Ferrite.Core.Exceptions;
 
 namespace Ferrite::Core::Classes {
 
-    export class Object  : std::enable_shared_from_this<Object> {
+    export class Object {
     private:
-        mutable std::shared_mutex component_mutex;
-        std::vector<std::shared_ptr<Component<Object>>> components;
+        mutable std::shared_mutex component_mutex; // 56 8
+        std::vector<std::shared_ptr<Component<Object>>> components; // 24 8
 
-        mutable std::shared_mutex child_mutex;
-        std::vector<std::shared_ptr<Object>> children;
+        mutable std::shared_mutex child_mutex; // 56 8
+        std::vector<std::shared_ptr<Object>> children; // 24 8
 
     public:
 
-        mutable std::shared_mutex tag_mutex;
-        std::unordered_set<std::string> tags;
+        mutable std::shared_mutex id_mutex; // for `tags`, `name`, and `name_hash`
+        std::set<std::string> tags; // 56 8
+        std::string name; // 32 8
+        std::size_t name_hash; // 8 8
 
-        mutable std::shared_mutex name_mutex;
-        std::string name;
-        std::size_t name_hash;
+        Object* owner; // 8 8
 
-        std::atomic<bool> enabled = true;
+        std::atomic<bool> enabled = true; // 1 1
 
-        Object* owner;
 
         void start(Jobs::JobQueue& queue) const noexcept;
         void update(double dt, std::size_t& counter, std::mutex& counter_mutex, std::condition_variable& cv, Jobs::JobQueue& queue) const noexcept;
@@ -132,11 +133,17 @@ namespace Ferrite::Core::Classes {
     std::weak_ptr<T> Object::find_component() const noexcept(!Config::EXCEPTIONS_ALLOWED) {
         std::shared_lock lock(component_mutex);
 
-        for (auto& comp : components) {
-            if (dynamic_cast<T*>(comp.get()))
-                return comp;
-        }
+        auto it = std::ranges::find_if(
+            std::execution::par_unseq,
+            components,
+            [](const auto& c)->bool {
+                return std::dynamic_pointer_cast<T>(c);
+            }
+        );
 
+        if (it != components.end()) {
+            return *it;
+        }
         if constexpr (Config::EXCEPTIONS_ALLOWED) {
             throw Exceptions::NoComponentFound("No component with the specified type was found!");
         }
@@ -150,15 +157,15 @@ namespace Ferrite::Core::Classes {
     bool Object::has_component() const noexcept {
         std::shared_lock lock(component_mutex);
 
-        for (auto& comp : components) {
-            if (dynamic_cast<T*>(comp.get()))
-                return true;
-        }
+        auto it = std::find_if(
+            std::execution::par_unseq,
+            components.begin(), components.end(),
+            [](const auto& c)->bool {
+                return std::dynamic_pointer_cast<T>(c);
+            }
+        );
 
-        return false;
+        return it != components.end();
     }
-
-
-
 
 } // namespace Ferrite::Core::Classes

@@ -3,6 +3,7 @@
 .vs
 .vscode
 .clangd
+.cache
 vc140.pdb
 
 # Shortcut scripts
